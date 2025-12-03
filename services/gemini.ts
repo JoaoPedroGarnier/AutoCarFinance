@@ -2,6 +2,9 @@
 import { GoogleGenAI } from "@google/genai";
 import { Vehicle } from "../types";
 
+// Avoid TypeScript errors with process.env in some environments
+declare const process: any;
+
 const getClient = () => {
   const apiKey = process.env.API_KEY;
   if (!apiKey) {

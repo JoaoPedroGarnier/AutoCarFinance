@@ -227,7 +227,8 @@ const Inventory: React.FC = () => {
               </div>
             </div>
           </div>
-        )}})}
+        );
+        })}
         {filteredVehicles.length === 0 && (
             <div className="col-span-full py-12 text-center text-slate-400 bg-white rounded-xl border border-dashed border-slate-200">
                 <p>Nenhum veículo encontrado.</p>
@@ -368,7 +369,12 @@ const Inventory: React.FC = () => {
                                             </div>
                                         </div>
                                     </div>
-                                    <span className="font-bold text-rose-600">- R$ {exp.amount.toLocaleString('pt-BR')}</span>
+                                    <div className="flex items-center gap-3">
+                                      <span className="font-bold text-rose-600">- R$ {exp.amount.toLocaleString('pt-BR')}</span>
+                                      <button onClick={() => removeExpense(exp.id)} className="text-slate-400 hover:text-red-500 transition-colors p-1" title="Excluir despesa">
+                                        <Trash2 size={14} />
+                                      </button>
+                                    </div>
                                 </div>
                             ))
                         ) : (
