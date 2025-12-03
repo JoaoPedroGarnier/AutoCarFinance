@@ -38,7 +38,7 @@ interface StoreContextType {
 const StoreContext = createContext<StoreContextType | undefined>(undefined);
 
 export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
-  // 1. Carregar usuários registrados do LocalStorage ao iniciar
+  // 1. Carregar usuários registrados do Armazenamento ao iniciar
   const [users, setUsers] = useState<User[]>(() => {
     try {
       const savedUsers = localStorage.getItem(USERS_STORAGE_KEY);
@@ -52,8 +52,11 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
   // Estado da Sessão Atual
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
+  
+  // TRAVA DE SEGURANÇA: Impede que o useEffect de salvamento sobrescreva dados antes do carregamento completo
+  const [isDataLoaded, setIsDataLoaded] = useState(false);
 
-  // Estados de Dados (Iniciam vazios, são carregados no Login)
+  // Estados de Dados
   const [vehicles, setVehicles] = useState<Vehicle[]>([]);
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [sales, setSales] = useState<Sale[]>([]);
@@ -63,24 +66,30 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
   // --- PERSISTÊNCIA: USUÁRIOS ---
   // Salva a lista de usuários sempre que um novo for registrado
   useEffect(() => {
-    localStorage.setItem(USERS_STORAGE_KEY, JSON.stringify(users));
+    if (users.length > 0) {
+      localStorage.setItem(USERS_STORAGE_KEY, JSON.stringify(users));
+    }
   }, [users]);
 
-  // --- PERSISTÊNCIA: DADOS DA LOJA ---
-  // Salva os dados da loja atual sempre que houver qualquer alteração
+  // --- PERSISTÊNCIA: DADOS DA LOJA (Sync) ---
+  // Salva os dados da loja atual SEMPRE que houver qualquer alteração
+  // MAS APENAS SE os dados já tiverem sido carregados inicialmente (isDataLoaded)
   useEffect(() => {
-    if (currentUser && isAuthenticated) {
+    if (currentUser && isAuthenticated && isDataLoaded) {
       const storageKey = `${DATA_STORAGE_PREFIX}${currentUser.id}`;
       const dataToSave = {
         vehicles,
         customers,
         sales,
         expenses,
-        storeProfile
+        storeProfile,
+        lastUpdated: new Date().toISOString() // Metadata para controle de versão
       };
+      
+      console.log(`[AutoCars Sync] Salvando dados atualizados para usuário ${currentUser.id}...`);
       localStorage.setItem(storageKey, JSON.stringify(dataToSave));
     }
-  }, [vehicles, customers, sales, expenses, storeProfile, currentUser, isAuthenticated]);
+  }, [vehicles, customers, sales, expenses, storeProfile, currentUser, isAuthenticated, isDataLoaded]);
 
   // --- AÇÕES ---
 
@@ -104,20 +113,24 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
   const updateStoreProfile = (p: StoreProfile) => setStoreProfile(p);
   
   const login = (email: string, password: string): boolean => {
+    // 1. Simular autenticação
     const user = users.find(u => u.email === email && u.password === password);
+    
     if (user) {
-      // 1. Definir Usuário
+      console.log(`[AutoCars Auth] Usuário ${user.email} autenticado. Carregando armazenamento...`);
       setCurrentUser(user);
       setIsAuthenticated(true);
       
-      // 2. Carregar Dados do LocalStorage Específico do Usuário
+      // 2. Carregar Dados do Armazenamento Central (LocalStorage neste caso)
       const storageKey = `${DATA_STORAGE_PREFIX}${user.id}`;
       const savedDataString = localStorage.getItem(storageKey);
       
       if (savedDataString) {
-        // Usuário já tem dados, carregar
+        // Cenario A: Dados já existem. Carregar e Sincronizar.
         try {
           const userData = JSON.parse(savedDataString);
+          console.log("[AutoCars Sync] Dados existentes encontrados. Carregando...");
+          
           setVehicles(userData.vehicles || []);
           setCustomers(userData.customers || []);
           setSales(userData.sales || []);
@@ -128,13 +141,16 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
             phone: '',
             targetMargin: 20
           });
+          
+          // Libera a trava para permitir edições futuras
+          setIsDataLoaded(true);
         } catch (e) {
-          console.error("Erro ao processar dados salvos", e);
-          // Fallback seguro se o JSON estiver corrompido
+          console.error("[AutoCars Sync] Erro Crítico: Dados corrompidos.", e);
           initializeEmptyData(user);
         }
       } else {
-        // Edge case: Usuário existe na lista mas não tem dados (limpeza de cache?)
+        // Cenario B: Primeiro acesso deste usuário (ou limpeza de cache). Inicializar.
+        console.log("[AutoCars Sync] Nenhum dado encontrado. Inicializando novo banco de dados para a loja.");
         initializeEmptyData(user);
       }
 
@@ -154,6 +170,8 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
        phone: '',
        targetMargin: 20
      });
+     // Importante: Marcar como carregado para que o useEffect possa salvar a estrutura inicial
+     setIsDataLoaded(true);
   };
 
   const register = (userData: Omit<User, 'id'>): boolean => {
@@ -163,24 +181,27 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     
     const newUser: User = { ...userData, id: Date.now().toString() };
     
-    // Atualiza lista de usuários (o useEffect vai salvar no localStorage)
-    setUsers(prev => [...prev, newUser]);
+    // Atualiza lista de usuários
+    const updatedUsers = [...users, newUser];
+    setUsers(updatedUsers);
+    localStorage.setItem(USERS_STORAGE_KEY, JSON.stringify(updatedUsers));
     
     // Auto Login
     setCurrentUser(newUser);
     setIsAuthenticated(true);
     
-    // Inicializa estados vazios
-    // O useEffect de persistência vai criar a entrada 'autocars_data_ID' automaticamente
+    // Inicializa estrutura de dados zerada
     initializeEmptyData(newUser);
 
     return true;
   };
 
   const logout = () => {
+    console.log("[AutoCars Auth] Logout realizado. Limpando memória volátil.");
     setCurrentUser(null);
     setIsAuthenticated(false);
-    // Limpar visualização por segurança
+    setIsDataLoaded(false); // Trava novamente
+    // Limpar visualização por segurança (não apaga do localStorage)
     setVehicles([]);
     setCustomers([]);
     setSales([]);
