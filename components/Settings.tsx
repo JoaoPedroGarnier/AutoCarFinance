@@ -1,10 +1,9 @@
-
 import React, { useState } from 'react';
 import { useStore } from '../services/store';
-import { Store, Mail, Phone, Save } from 'lucide-react';
+import { Store, Mail, Phone, Save, Download, Upload, Cloud, CloudOff, Info } from 'lucide-react';
 
 const Settings: React.FC = () => {
-  const { storeProfile, updateStoreProfile } = useStore();
+  const { storeProfile, updateStoreProfile, exportData, importData, isCloudSyncing } = useStore();
   const [formData, setFormData] = useState(storeProfile);
   const [message, setMessage] = useState('');
 
@@ -15,17 +14,49 @@ const Settings: React.FC = () => {
     setTimeout(() => setMessage(''), 3000);
   };
 
+  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const content = event.target?.result as string;
+      if (content && importData(content)) {
+        setMessage('Dados restaurados com sucesso!');
+        setTimeout(() => setMessage(''), 3000);
+      } else {
+        setMessage('Erro ao restaurar arquivo. Verifique o formato.');
+      }
+    };
+    reader.readAsText(file);
+  };
+
   return (
-    <div className="max-w-2xl mx-auto space-y-6">
+    <div className="max-w-2xl mx-auto space-y-6 pb-12">
       <h2 className="text-2xl font-bold text-slate-800">Configurações da Loja</h2>
       
       <form onSubmit={handleSubmit} className="bg-white p-6 rounded-xl shadow-sm border border-slate-100 space-y-6">
         {message && (
-          <div className="p-4 bg-emerald-50 text-emerald-700 rounded-lg text-sm font-medium border border-emerald-100">
+          <div className="p-4 bg-emerald-50 text-emerald-700 rounded-lg text-sm font-medium border border-emerald-100 animate-in fade-in">
             {message}
           </div>
         )}
         
+        {/* Status da Sincronização */}
+        <div className={`p-4 rounded-xl border flex items-center gap-3 ${isCloudSyncing ? 'bg-indigo-50 border-indigo-100 text-indigo-800' : 'bg-amber-50 border-amber-100 text-amber-800'}`}>
+           {isCloudSyncing ? <Cloud size={24} className="text-indigo-600" /> : <CloudOff size={24} className="text-amber-600" />}
+           <div>
+             <h3 className="font-bold text-sm uppercase mb-0.5">
+               {isCloudSyncing ? 'Sincronização em Nuvem Ativa' : 'Modo Local (Offline)'}
+             </h3>
+             <p className="text-xs opacity-90">
+               {isCloudSyncing 
+                 ? 'Seus dados são salvos automaticamente e acessíveis em qualquer dispositivo.' 
+                 : 'Seus dados estão salvos apenas neste navegador. Para sincronizar entre PC e Celular, configure as chaves do Firebase.'}
+             </p>
+           </div>
+        </div>
+
         <div className="space-y-4">
           <div>
             <label className="block text-sm font-medium text-slate-700 mb-1">Nome da Loja</label>
@@ -84,8 +115,29 @@ const Settings: React.FC = () => {
         </div>
       </form>
 
-      <div className="bg-blue-50 border border-blue-100 rounded-xl p-4 text-blue-800 text-sm">
-        <p><strong>Dica:</strong> Essas informações serão utilizadas em documentos impressos e na identificação da loja no sistema.</p>
+      {/* Backup Section */}
+      <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-100 space-y-6">
+        <h3 className="text-lg font-bold text-slate-800 flex items-center gap-2">
+            Gestão de Dados
+        </h3>
+        <p className="text-sm text-slate-500">
+            Use estas opções para transferir seus dados manualmente se não estiver usando a nuvem.
+        </p>
+        
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <button 
+                onClick={exportData}
+                className="flex items-center justify-center gap-2 p-4 border border-slate-200 rounded-xl hover:bg-slate-50 text-slate-700 font-medium transition-all"
+            >
+                <Download size={20} />
+                Baixar Backup (Exportar)
+            </button>
+            <label className="flex items-center justify-center gap-2 p-4 border border-slate-200 rounded-xl hover:bg-slate-50 text-slate-700 font-medium transition-all cursor-pointer">
+                <Upload size={20} />
+                Restaurar Backup (Importar)
+                <input type="file" accept=".json" className="hidden" onChange={handleFileUpload} />
+            </label>
+        </div>
       </div>
     </div>
   );

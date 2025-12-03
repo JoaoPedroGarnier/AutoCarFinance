@@ -1,6 +1,7 @@
-
 import React, { createContext, useContext, useState, ReactNode, useEffect } from 'react';
 import { Vehicle, Customer, Sale, Expense, VehicleStatus, FuelType, StoreProfile, User } from '../types';
+import { db, isFirebaseConfigured } from './firebase';
+import { doc, setDoc, getDoc, onSnapshot, updateDoc, collection, getDocs, query, where } from 'firebase/firestore';
 
 // --- CONSTANTES ---
 const USERS_STORAGE_KEY = 'autocars_users';
@@ -21,6 +22,7 @@ interface StoreContextType {
   storeProfile: StoreProfile;
   isAuthenticated: boolean;
   currentUser: User | null;
+  isCloudSyncing: boolean; // New state to show sync status
   addVehicle: (v: Vehicle) => void;
   updateVehicle: (v: Vehicle) => void;
   removeVehicle: (id: string) => void;
@@ -30,68 +32,122 @@ interface StoreContextType {
   addExpense: (e: Expense) => void;
   removeExpense: (id: string) => void;
   updateStoreProfile: (p: StoreProfile) => void;
-  login: (email: string, password: string) => boolean;
-  register: (user: Omit<User, 'id'>) => boolean;
+  login: (email: string, password: string) => Promise<boolean>;
+  register: (user: Omit<User, 'id'>) => Promise<boolean>;
   logout: () => void;
+  exportData: () => void;
+  importData: (jsonData: string) => boolean;
 }
 
 const StoreContext = createContext<StoreContextType | undefined>(undefined);
 
 export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
-  // 1. Carregar usuários registrados do Armazenamento ao iniciar
+  // Local User Cache (for when offline/local mode)
   const [users, setUsers] = useState<User[]>(() => {
     try {
       const savedUsers = localStorage.getItem(USERS_STORAGE_KEY);
       return savedUsers ? JSON.parse(savedUsers) : [];
     } catch (error) {
-      console.error("Erro ao carregar usuários:", error);
+      console.error("Erro ao carregar usuários locais:", error);
       return [];
     }
   });
   
-  // Estado da Sessão Atual
+  // Session State
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
-  
-  // TRAVA DE SEGURANÇA: Impede que o useEffect de salvamento sobrescreva dados antes do carregamento completo
   const [isDataLoaded, setIsDataLoaded] = useState(false);
-
-  // Estados de Dados
+  
+  // Data State
   const [vehicles, setVehicles] = useState<Vehicle[]>([]);
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [sales, setSales] = useState<Sale[]>([]);
   const [expenses, setExpenses] = useState<Expense[]>([]);
   const [storeProfile, setStoreProfile] = useState<StoreProfile>(EMPTY_STORE_PROFILE);
 
-  // --- PERSISTÊNCIA: USUÁRIOS ---
-  // Salva a lista de usuários sempre que um novo for registrado
-  useEffect(() => {
-    if (users.length > 0) {
-      localStorage.setItem(USERS_STORAGE_KEY, JSON.stringify(users));
-    }
-  }, [users]);
+  // --- HELPER: INITIALIZE EMPTY ---
+  const initializeEmptyData = (user: User) => {
+     setVehicles([]);
+     setCustomers([]);
+     setSales([]);
+     setExpenses([]);
+     setStoreProfile({
+       name: user.storeName,
+       email: user.email,
+       phone: '',
+       targetMargin: 20
+     });
+     setIsDataLoaded(true);
+  };
 
-  // --- PERSISTÊNCIA: DADOS DA LOJA (Sync) ---
-  // Salva os dados da loja atual SEMPRE que houver qualquer alteração
-  // MAS APENAS SE os dados já tiverem sido carregados inicialmente (isDataLoaded)
+  // --- PERSISTÊNCIA & SINCRONIZAÇÃO ---
+
+  // 1. Sync Changes TO Storage (Cloud or Local)
   useEffect(() => {
     if (currentUser && isAuthenticated && isDataLoaded) {
-      const storageKey = `${DATA_STORAGE_PREFIX}${currentUser.id}`;
       const dataToSave = {
         vehicles,
         customers,
         sales,
         expenses,
         storeProfile,
-        lastUpdated: new Date().toISOString() // Metadata para controle de versão
+        lastUpdated: new Date().toISOString()
       };
-      
-      console.log(`[AutoCars Sync] Salvando dados atualizados para usuário ${currentUser.id}...`);
-      localStorage.setItem(storageKey, JSON.stringify(dataToSave));
+
+      if (isFirebaseConfigured && db) {
+        // CLOUD SAVE (Debounced slightly in real apps, but direct here for simplicity)
+        const userStoreRef = doc(db, 'stores', currentUser.id);
+        // We use setDoc with merge to avoid overwriting if fields missing, but here we want full state sync
+        setDoc(userStoreRef, dataToSave, { merge: true }).catch(err => console.error("Cloud Save Error:", err));
+      } else {
+        // LOCAL SAVE
+        const storageKey = `${DATA_STORAGE_PREFIX}${currentUser.id}`;
+        localStorage.setItem(storageKey, JSON.stringify(dataToSave));
+      }
     }
   }, [vehicles, customers, sales, expenses, storeProfile, currentUser, isAuthenticated, isDataLoaded]);
 
-  // --- AÇÕES ---
+  // 2. Real-time Listeners FROM Cloud
+  useEffect(() => {
+    let unsubscribe: () => void;
+
+    if (isAuthenticated && currentUser && isFirebaseConfigured && db) {
+      console.log("[AutoCars Sync] Conectando ao Firestore...");
+      const userStoreRef = doc(db, 'stores', currentUser.id);
+      
+      unsubscribe = onSnapshot(userStoreRef, (docSnap) => {
+        if (docSnap.exists()) {
+          const data = docSnap.data();
+          console.log("[AutoCars Sync] Atualização recebida da Nuvem.");
+          // Only update state if data is different/newer to avoid loops (simplified here)
+          // In a real robust app, we'd check timestamps.
+          setVehicles(data.vehicles || []);
+          setCustomers(data.customers || []);
+          setSales(data.sales || []);
+          setExpenses(data.expenses || []);
+          if (data.storeProfile) setStoreProfile(data.storeProfile);
+          setIsDataLoaded(true);
+        } else {
+          // Document doesn't exist yet on cloud, create it from current empty state
+          console.log("[AutoCars Sync] Loja não encontrada na nuvem. Criando...");
+          setDoc(userStoreRef, {
+            vehicles: [], customers: [], sales: [], expenses: [],
+            storeProfile: { name: currentUser.storeName, email: currentUser.email, phone: '', targetMargin: 20 },
+            createdAt: new Date().toISOString()
+          });
+          setIsDataLoaded(true);
+        }
+      }, (error) => {
+        console.error("Erro na sincronização:", error);
+      });
+    }
+
+    return () => {
+      if (unsubscribe) unsubscribe();
+    };
+  }, [isAuthenticated, currentUser]);
+
+  // --- ACTIONS ---
 
   const addVehicle = (v: Vehicle) => setVehicles(prev => [v, ...prev]);
   const updateVehicle = (v: Vehicle) => setVehicles(prev => prev.map(item => item.id === v.id ? v : item));
@@ -112,96 +168,98 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
 
   const updateStoreProfile = (p: StoreProfile) => setStoreProfile(p);
   
-  const login = (email: string, password: string): boolean => {
-    // 1. Simular autenticação
-    const user = users.find(u => u.email === email && u.password === password);
-    
-    if (user) {
-      console.log(`[AutoCars Auth] Usuário ${user.email} autenticado. Carregando armazenamento...`);
-      setCurrentUser(user);
+  // --- AUTHENTICATION ---
+
+  const login = async (email: string, password: string): Promise<boolean> => {
+    // 1. Check Cloud Auth (Simulated using Users Collection)
+    if (isFirebaseConfigured && db) {
+      try {
+        const usersRef = collection(db, 'users');
+        const q = query(usersRef, where("email", "==", email), where("password", "==", password));
+        const querySnapshot = await getDocs(q);
+
+        if (!querySnapshot.empty) {
+          const userDoc = querySnapshot.docs[0];
+          const userData = userDoc.data() as User;
+          setCurrentUser(userData);
+          setIsAuthenticated(true);
+          return true;
+        }
+      } catch (err) {
+        console.error("Erro no login nuvem:", err);
+      }
+    }
+
+    // 2. Fallback to Local Auth
+    const localUser = users.find(u => u.email === email && u.password === password);
+    if (localUser) {
+      setCurrentUser(localUser);
       setIsAuthenticated(true);
       
-      // 2. Carregar Dados do Armazenamento Central (LocalStorage neste caso)
-      const storageKey = `${DATA_STORAGE_PREFIX}${user.id}`;
-      const savedDataString = localStorage.getItem(storageKey);
-      
-      if (savedDataString) {
-        // Cenario A: Dados já existem. Carregar e Sincronizar.
-        try {
+      // Load Local Data
+      if (!isFirebaseConfigured) {
+        const storageKey = `${DATA_STORAGE_PREFIX}${localUser.id}`;
+        const savedDataString = localStorage.getItem(storageKey);
+        if (savedDataString) {
           const userData = JSON.parse(savedDataString);
-          console.log("[AutoCars Sync] Dados existentes encontrados. Carregando...");
-          
           setVehicles(userData.vehicles || []);
           setCustomers(userData.customers || []);
           setSales(userData.sales || []);
           setExpenses(userData.expenses || []);
-          setStoreProfile(userData.storeProfile || {
-            name: user.storeName,
-            email: user.email,
-            phone: '',
-            targetMargin: 20
-          });
-          
-          // Libera a trava para permitir edições futuras
+          setStoreProfile(userData.storeProfile || EMPTY_STORE_PROFILE);
           setIsDataLoaded(true);
-        } catch (e) {
-          console.error("[AutoCars Sync] Erro Crítico: Dados corrompidos.", e);
-          initializeEmptyData(user);
+        } else {
+          initializeEmptyData(localUser);
         }
-      } else {
-        // Cenario B: Primeiro acesso deste usuário (ou limpeza de cache). Inicializar.
-        console.log("[AutoCars Sync] Nenhum dado encontrado. Inicializando novo banco de dados para a loja.");
-        initializeEmptyData(user);
       }
-
       return true;
     }
+
     return false;
   };
 
-  const initializeEmptyData = (user: User) => {
-     setVehicles([]);
-     setCustomers([]);
-     setSales([]);
-     setExpenses([]);
-     setStoreProfile({
-       name: user.storeName,
-       email: user.email,
-       phone: '',
-       targetMargin: 20
-     });
-     // Importante: Marcar como carregado para que o useEffect possa salvar a estrutura inicial
-     setIsDataLoaded(true);
-  };
+  const register = async (userData: Omit<User, 'id'>): Promise<boolean> => {
+    const newUser: User = { ...userData, id: Date.now().toString() };
 
-  const register = (userData: Omit<User, 'id'>): boolean => {
-    if (users.find(u => u.email === userData.email)) {
-      return false; // Usuário já existe
+    // 1. Register in Cloud
+    if (isFirebaseConfigured && db) {
+      try {
+        // Check if exists
+        const usersRef = collection(db, 'users');
+        const q = query(usersRef, where("email", "==", userData.email));
+        const snap = await getDocs(q);
+        if (!snap.empty) return false;
+
+        // Save User
+        await setDoc(doc(db, 'users', newUser.id), newUser);
+        
+        // Initialize Store Data
+        await setDoc(doc(db, 'stores', newUser.id), {
+          vehicles: [], customers: [], sales: [], expenses: [],
+          storeProfile: { name: userData.storeName, email: userData.email, phone: '', targetMargin: 20 }
+        });
+      } catch (err) {
+        console.error("Erro registro nuvem:", err);
+        return false;
+      }
+    } else {
+      // Register Local
+      if (users.find(u => u.email === userData.email)) return false;
+      const updatedUsers = [...users, newUser];
+      setUsers(updatedUsers);
+      localStorage.setItem(USERS_STORAGE_KEY, JSON.stringify(updatedUsers));
+      initializeEmptyData(newUser);
     }
     
-    const newUser: User = { ...userData, id: Date.now().toString() };
-    
-    // Atualiza lista de usuários
-    const updatedUsers = [...users, newUser];
-    setUsers(updatedUsers);
-    localStorage.setItem(USERS_STORAGE_KEY, JSON.stringify(updatedUsers));
-    
-    // Auto Login
     setCurrentUser(newUser);
     setIsAuthenticated(true);
-    
-    // Inicializa estrutura de dados zerada
-    initializeEmptyData(newUser);
-
     return true;
   };
 
   const logout = () => {
-    console.log("[AutoCars Auth] Logout realizado. Limpando memória volátil.");
     setCurrentUser(null);
     setIsAuthenticated(false);
-    setIsDataLoaded(false); // Trava novamente
-    // Limpar visualização por segurança (não apaga do localStorage)
+    setIsDataLoaded(false);
     setVehicles([]);
     setCustomers([]);
     setSales([]);
@@ -209,11 +267,43 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     setStoreProfile(EMPTY_STORE_PROFILE);
   };
 
+  // --- IMPORT/EXPORT ---
+  const exportData = () => {
+    if (!currentUser) return;
+    const data = {
+      vehicles, customers, sales, expenses, storeProfile,
+      user: { email: currentUser.email, storeName: currentUser.storeName }
+    };
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `backup_autocars_${new Date().toISOString().split('T')[0]}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const importData = (jsonData: string): boolean => {
+    try {
+      const data = JSON.parse(jsonData);
+      if (data.vehicles && Array.isArray(data.vehicles)) setVehicles(data.vehicles);
+      if (data.customers && Array.isArray(data.customers)) setCustomers(data.customers);
+      if (data.sales && Array.isArray(data.sales)) setSales(data.sales);
+      if (data.expenses && Array.isArray(data.expenses)) setExpenses(data.expenses);
+      if (data.storeProfile) setStoreProfile(data.storeProfile);
+      return true;
+    } catch (e) {
+      console.error("Erro na importação:", e);
+      return false;
+    }
+  };
+
   return (
     <StoreContext.Provider value={{ 
       vehicles, customers, sales, expenses, storeProfile, isAuthenticated, currentUser,
+      isCloudSyncing: isFirebaseConfigured,
       addVehicle, updateVehicle, removeVehicle, addCustomer, removeCustomer, addSale, addExpense, removeExpense, updateStoreProfile,
-      login, register, logout
+      login, register, logout, exportData, importData
     }}>
       {children}
     </StoreContext.Provider>
