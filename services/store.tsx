@@ -312,3 +312,89 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
       } catch (err) {
         console.error("Erro registro nuvem:", err);
         return false;
+      }
+    } else {
+      // Register Local
+      if (users.find(u => u.email === userData.email)) return false;
+      const updatedUsers = [...users, newUser];
+      setUsers(updatedUsers);
+      localStorage.setItem(USERS_STORAGE_KEY, JSON.stringify(updatedUsers));
+      initializeEmptyState(newUser.storeName, newUser.email);
+    }
+    
+    setCurrentUser(newUser);
+    setIsAuthenticated(true);
+    return true;
+  };
+
+  const logout = () => {
+    setCurrentUser(null);
+    setIsAuthenticated(false);
+    setIsDataLoaded(false);
+    setVehicles([]);
+    setCustomers([]);
+    setSales([]);
+    setExpenses([]);
+    setStoreProfile(EMPTY_STORE_PROFILE);
+  };
+
+  // --- IMPORT/EXPORT ---
+  const exportData = () => {
+    if (!currentUser) return;
+    const data = {
+      vehicles, customers, sales, expenses, storeProfile,
+      user: { email: currentUser.email, storeName: currentUser.storeName }
+    };
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `backup_autocars_${new Date().toISOString().split('T')[0]}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const importData = (jsonData: string): boolean => {
+    try {
+      const data = JSON.parse(jsonData);
+      // If connected to cloud, save imported data to cloud
+      if (isFirebaseConfigured && db && currentUser) {
+          saveToCloud({
+              vehicles: data.vehicles || [],
+              customers: data.customers || [],
+              sales: data.sales || [],
+              expenses: data.expenses || [],
+              storeProfile: data.storeProfile || storeProfile
+          });
+      } else {
+          // Local update
+          if (data.vehicles && Array.isArray(data.vehicles)) setVehicles(data.vehicles);
+          if (data.customers && Array.isArray(data.customers)) setCustomers(data.customers);
+          if (data.sales && Array.isArray(data.sales)) setSales(data.sales);
+          if (data.expenses && Array.isArray(data.expenses)) setExpenses(data.expenses);
+          if (data.storeProfile) setStoreProfile(data.storeProfile);
+      }
+      return true;
+    } catch (e) {
+      console.error("Erro na importação:", e);
+      return false;
+    }
+  };
+
+  return (
+    <StoreContext.Provider value={{ 
+      vehicles, customers, sales, expenses, storeProfile, isAuthenticated, currentUser,
+      isCloudSyncing: isFirebaseConfigured && !!db,
+      addVehicle, updateVehicle, removeVehicle, addCustomer, removeCustomer, addSale, addExpense, removeExpense, updateStoreProfile,
+      login, register, logout, exportData, importData
+    }}>
+      {children}
+    </StoreContext.Provider>
+  );
+};
+
+export const useStore = () => {
+  const context = useContext(StoreContext);
+  if (!context) throw new Error("useStore must be used within StoreProvider");
+  return context;
+};

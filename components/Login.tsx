@@ -1,7 +1,7 @@
 
 import React, { useState } from 'react';
 import { useStore } from '../services/store';
-import { Mail, Lock, ArrowRight, UserPlus, Store, CheckCircle, Key } from 'lucide-react';
+import { Mail, Lock, ArrowRight, UserPlus, Store, CheckCircle, Key, AlertTriangle } from 'lucide-react';
 
 const Login: React.FC = () => {
   const { login, register } = useStore();
@@ -19,15 +19,14 @@ const Login: React.FC = () => {
     e.preventDefault();
     setError('');
 
+    // Validação Global do Código de Acesso (Login e Cadastro)
+    if (accessCode !== 'Auto12@') {
+      setError('Código de acesso incorreto. Você precisa da senha mestra para acessar o sistema.');
+      return;
+    }
+
     if (isRegistering) {
       // Logic for Registration
-      
-      // Validação do Código de Acesso
-      if (accessCode !== 'Auto12@') {
-        setError('Código de acesso inválido. Solicite permissão ao administrador.');
-        return;
-      }
-
       if (password !== confirmPassword) {
         setError('As senhas não conferem.');
         return;
@@ -39,25 +38,31 @@ const Login: React.FC = () => {
       
       const success = register({ email, password, storeName });
       if (!success) {
-        setError('Este e-mail já está cadastrado.');
+        setError('Este e-mail já está cadastrado ou houve erro no servidor.');
       }
     } else {
       // Logic for Login
       const success = login(email, password);
-      if (!success) {
-        setError('E-mail ou senha inválidos.');
-      }
+      // Como o login agora pode ser async (promessa), precisamos tratar diferente se necessário,
+      // mas o useStore.login atual retorna Promise<boolean>.
+      // O componente precisa esperar a promessa.
+      Promise.resolve(success).then(res => {
+          if (!res) {
+            setError('E-mail ou senha inválidos, ou erro de conexão.');
+          }
+      });
     }
   };
 
   const toggleMode = () => {
     setIsRegistering(!isRegistering);
     setError('');
+    // Mantemos o accessCode preenchido para facilitar a troca de abas
+    // Limpamos apenas os dados pessoais
     setEmail('');
     setPassword('');
     setConfirmPassword('');
     setStoreName('');
-    setAccessCode('');
   };
 
   return (
@@ -77,44 +82,43 @@ const Login: React.FC = () => {
         {/* Form Section */}
         <form onSubmit={handleSubmit} className="p-8 space-y-5">
           {error && (
-            <div className="bg-red-50 text-red-600 text-sm p-3 rounded-lg border border-red-100 font-medium text-center animate-in fade-in slide-in-from-top-2">
+            <div className="bg-red-50 text-red-600 text-sm p-3 rounded-lg border border-red-100 font-medium text-center animate-in fade-in slide-in-from-top-2 flex items-center justify-center gap-2">
+              <AlertTriangle size={16} />
               {error}
             </div>
           )}
 
-          {isRegistering && (
-            <>
-              {/* Campo de Código de Acesso (Segurança) */}
-              <div className="space-y-1 animate-in fade-in slide-in-from-top-4 duration-300">
-                <label className="text-sm font-medium text-slate-700 ml-1">Código de Acesso</label>
-                <div className="relative">
-                  <Key className="absolute left-3 top-3 text-slate-400" size={20} />
-                  <input 
-                    type="password" 
-                    required={isRegistering}
-                    placeholder="Código para cadastro"
-                    className="w-full pl-10 p-3 bg-white border border-slate-300 rounded-xl focus:ring-2 focus:ring-brand-500 focus:border-brand-500 outline-none transition-all placeholder:text-slate-400 text-slate-800"
-                    value={accessCode}
-                    onChange={(e) => setAccessCode(e.target.value)}
-                  />
-                </div>
-              </div>
+          {/* Campo de Código de Acesso (Agora visível SEMPRE) */}
+          <div className="space-y-1">
+            <label className="text-sm font-medium text-slate-700 ml-1">Código de Acesso</label>
+            <div className="relative">
+              <Key className="absolute left-3 top-3 text-slate-400" size={20} />
+              <input 
+                type="password" 
+                required
+                placeholder="Digite o código de acesso"
+                className="w-full pl-10 p-3 bg-white border border-slate-300 rounded-xl focus:ring-2 focus:ring-brand-500 focus:border-brand-500 outline-none transition-all placeholder:text-slate-400 text-slate-800"
+                value={accessCode}
+                onChange={(e) => setAccessCode(e.target.value)}
+              />
+            </div>
+          </div>
 
-              <div className="space-y-1 animate-in fade-in slide-in-from-top-4 duration-300">
-                <label className="text-sm font-medium text-slate-700 ml-1">Nome da Loja</label>
-                <div className="relative">
-                  <Store className="absolute left-3 top-3 text-slate-400" size={20} />
-                  <input 
-                    type="text" 
-                    required={isRegistering}
-                    placeholder="Minha Concessionária"
-                    className="w-full pl-10 p-3 bg-white border border-slate-300 rounded-xl focus:ring-2 focus:ring-brand-500 focus:border-brand-500 outline-none transition-all placeholder:text-slate-400 text-slate-800"
-                    value={storeName}
-                    onChange={(e) => setStoreName(e.target.value)}
-                  />
-                </div>
+          {isRegistering && (
+            <div className="space-y-1 animate-in fade-in slide-in-from-top-4 duration-300">
+              <label className="text-sm font-medium text-slate-700 ml-1">Nome da Loja</label>
+              <div className="relative">
+                <Store className="absolute left-3 top-3 text-slate-400" size={20} />
+                <input 
+                  type="text" 
+                  required={isRegistering}
+                  placeholder="Minha Concessionária"
+                  className="w-full pl-10 p-3 bg-white border border-slate-300 rounded-xl focus:ring-2 focus:ring-brand-500 focus:border-brand-500 outline-none transition-all placeholder:text-slate-400 text-slate-800"
+                  value={storeName}
+                  onChange={(e) => setStoreName(e.target.value)}
+                />
               </div>
-            </>
+            </div>
           )}
 
           <div className="space-y-1">
