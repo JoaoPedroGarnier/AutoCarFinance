@@ -1,7 +1,7 @@
 
 import React, { useState } from 'react';
 import { useStore } from '../services/store';
-import { Mail, Lock, ArrowRight, UserPlus, Store, CheckCircle } from 'lucide-react';
+import { Mail, Lock, ArrowRight, UserPlus, Store, CheckCircle, Key } from 'lucide-react';
 
 const Login: React.FC = () => {
   const { login, register } = useStore();
@@ -11,6 +11,7 @@ const Login: React.FC = () => {
   const [password, setPassword] = useState('');
   const [storeName, setStoreName] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
+  const [accessCode, setAccessCode] = useState(''); // Estado para o código de acesso
   
   const [error, setError] = useState('');
 
@@ -20,6 +21,13 @@ const Login: React.FC = () => {
 
     if (isRegistering) {
       // Logic for Registration
+      
+      // Validação do Código de Acesso
+      if (accessCode !== 'Auto12@') {
+        setError('Código de acesso inválido. Solicite permissão ao administrador.');
+        return;
+      }
+
       if (password !== confirmPassword) {
         setError('As senhas não conferem.');
         return;
@@ -49,6 +57,7 @@ const Login: React.FC = () => {
     setPassword('');
     setConfirmPassword('');
     setStoreName('');
+    setAccessCode('');
   };
 
   return (
@@ -74,20 +83,38 @@ const Login: React.FC = () => {
           )}
 
           {isRegistering && (
-            <div className="space-y-1 animate-in fade-in slide-in-from-top-4 duration-300">
-              <label className="text-sm font-medium text-slate-700 ml-1">Nome da Loja</label>
-              <div className="relative">
-                <Store className="absolute left-3 top-3 text-slate-400" size={20} />
-                <input 
-                  type="text" 
-                  required={isRegistering}
-                  placeholder="Minha Concessionária"
-                  className="w-full pl-10 p-3 bg-white border border-slate-300 rounded-xl focus:ring-2 focus:ring-brand-500 focus:border-brand-500 outline-none transition-all placeholder:text-slate-400 text-slate-800"
-                  value={storeName}
-                  onChange={(e) => setStoreName(e.target.value)}
-                />
+            <>
+              {/* Campo de Código de Acesso (Segurança) */}
+              <div className="space-y-1 animate-in fade-in slide-in-from-top-4 duration-300">
+                <label className="text-sm font-medium text-slate-700 ml-1">Código de Acesso</label>
+                <div className="relative">
+                  <Key className="absolute left-3 top-3 text-slate-400" size={20} />
+                  <input 
+                    type="password" 
+                    required={isRegistering}
+                    placeholder="Código para cadastro"
+                    className="w-full pl-10 p-3 bg-white border border-slate-300 rounded-xl focus:ring-2 focus:ring-brand-500 focus:border-brand-500 outline-none transition-all placeholder:text-slate-400 text-slate-800"
+                    value={accessCode}
+                    onChange={(e) => setAccessCode(e.target.value)}
+                  />
+                </div>
               </div>
-            </div>
+
+              <div className="space-y-1 animate-in fade-in slide-in-from-top-4 duration-300">
+                <label className="text-sm font-medium text-slate-700 ml-1">Nome da Loja</label>
+                <div className="relative">
+                  <Store className="absolute left-3 top-3 text-slate-400" size={20} />
+                  <input 
+                    type="text" 
+                    required={isRegistering}
+                    placeholder="Minha Concessionária"
+                    className="w-full pl-10 p-3 bg-white border border-slate-300 rounded-xl focus:ring-2 focus:ring-brand-500 focus:border-brand-500 outline-none transition-all placeholder:text-slate-400 text-slate-800"
+                    value={storeName}
+                    onChange={(e) => setStoreName(e.target.value)}
+                  />
+                </div>
+              </div>
+            </>
           )}
 
           <div className="space-y-1">
