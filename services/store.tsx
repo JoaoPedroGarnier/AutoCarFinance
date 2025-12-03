@@ -1,3 +1,4 @@
+
 import React, { createContext, useContext, useState, ReactNode, useEffect } from 'react';
 import { Vehicle, Customer, Sale, Expense, VehicleStatus, FuelType, StoreProfile, User } from '../types';
 import { db, isFirebaseConfigured } from './firebase';
@@ -22,16 +23,16 @@ interface StoreContextType {
   storeProfile: StoreProfile;
   isAuthenticated: boolean;
   currentUser: User | null;
-  isCloudSyncing: boolean; // New state to show sync status
-  addVehicle: (v: Vehicle) => void;
-  updateVehicle: (v: Vehicle) => void;
-  removeVehicle: (id: string) => void;
-  addCustomer: (c: Customer) => void;
-  removeCustomer: (id: string) => void;
-  addSale: (s: Sale) => void;
-  addExpense: (e: Expense) => void;
-  removeExpense: (id: string) => void;
-  updateStoreProfile: (p: StoreProfile) => void;
+  isCloudSyncing: boolean;
+  addVehicle: (v: Vehicle) => Promise<void>;
+  updateVehicle: (v: Vehicle) => Promise<void>;
+  removeVehicle: (id: string) => Promise<void>;
+  addCustomer: (c: Customer) => Promise<void>;
+  removeCustomer: (id: string) => Promise<void>;
+  addSale: (s: Sale) => Promise<void>;
+  addExpense: (e: Expense) => Promise<void>;
+  removeExpense: (id: string) => Promise<void>;
+  updateStoreProfile: (p: StoreProfile) => Promise<void>;
   login: (email: string, password: string) => Promise<boolean>;
   register: (user: Omit<User, 'id'>) => Promise<boolean>;
   logout: () => void;
@@ -42,7 +43,7 @@ interface StoreContextType {
 const StoreContext = createContext<StoreContextType | undefined>(undefined);
 
 export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
-  // Local User Cache (for when offline/local mode)
+  // Local User Cache (for offline/local mode fallback)
   const [users, setUsers] = useState<User[]>(() => {
     try {
       const savedUsers = localStorage.getItem(USERS_STORAGE_KEY);
@@ -65,26 +66,25 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
   const [expenses, setExpenses] = useState<Expense[]>([]);
   const [storeProfile, setStoreProfile] = useState<StoreProfile>(EMPTY_STORE_PROFILE);
 
-  // --- HELPER: INITIALIZE EMPTY ---
-  const initializeEmptyData = (user: User) => {
+  // --- HELPER: INITIALIZE EMPTY STATE ---
+  const initializeEmptyState = (userName: string, userEmail: string) => {
      setVehicles([]);
      setCustomers([]);
      setSales([]);
      setExpenses([]);
      setStoreProfile({
-       name: user.storeName,
-       email: user.email,
+       name: userName,
+       email: userEmail,
        phone: '',
        targetMargin: 20
      });
      setIsDataLoaded(true);
   };
 
-  // --- PERSISTÊNCIA & SINCRONIZAÇÃO ---
-
-  // 1. Sync Changes TO Storage (Cloud or Local)
+  // --- 1. PERSISTÊNCIA LOCAL (FALLBACK APENAS) ---
+  // Só salva no LocalStorage se NÃO estiver usando a nuvem.
   useEffect(() => {
-    if (currentUser && isAuthenticated && isDataLoaded) {
+    if (currentUser && isAuthenticated && isDataLoaded && (!isFirebaseConfigured || !db)) {
       const dataToSave = {
         vehicles,
         customers,
@@ -93,21 +93,13 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
         storeProfile,
         lastUpdated: new Date().toISOString()
       };
-
-      if (isFirebaseConfigured && db) {
-        // CLOUD SAVE (Debounced slightly in real apps, but direct here for simplicity)
-        const userStoreRef = doc(db, 'stores', currentUser.id);
-        // We use setDoc with merge to avoid overwriting if fields missing, but here we want full state sync
-        setDoc(userStoreRef, dataToSave, { merge: true }).catch(err => console.error("Cloud Save Error:", err));
-      } else {
-        // LOCAL SAVE
-        const storageKey = `${DATA_STORAGE_PREFIX}${currentUser.id}`;
-        localStorage.setItem(storageKey, JSON.stringify(dataToSave));
-      }
+      const storageKey = `${DATA_STORAGE_PREFIX}${currentUser.id}`;
+      localStorage.setItem(storageKey, JSON.stringify(dataToSave));
     }
   }, [vehicles, customers, sales, expenses, storeProfile, currentUser, isAuthenticated, isDataLoaded]);
 
-  // 2. Real-time Listeners FROM Cloud
+  // --- 2. SINCRONIZAÇÃO EM TEMPO REAL (CLOUD LISTENER) ---
+  // Esta é a única fonte de verdade quando conectado à nuvem.
   useEffect(() => {
     let unsubscribe: () => void;
 
@@ -118,9 +110,7 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
       unsubscribe = onSnapshot(userStoreRef, (docSnap) => {
         if (docSnap.exists()) {
           const data = docSnap.data();
-          console.log("[AutoCars Sync] Atualização recebida da Nuvem.");
-          // Only update state if data is different/newer to avoid loops (simplified here)
-          // In a real robust app, we'd check timestamps.
+          // Recebe dados da nuvem e atualiza a tela imediatamente
           setVehicles(data.vehicles || []);
           setCustomers(data.customers || []);
           setSales(data.sales || []);
@@ -128,17 +118,18 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
           if (data.storeProfile) setStoreProfile(data.storeProfile);
           setIsDataLoaded(true);
         } else {
-          // Document doesn't exist yet on cloud, create it from current empty state
-          console.log("[AutoCars Sync] Loja não encontrada na nuvem. Criando...");
+          // Se o documento não existe na nuvem (primeiro acesso real), cria um vazio
+          console.log("[AutoCars Sync] Inicializando loja na nuvem...");
           setDoc(userStoreRef, {
             vehicles: [], customers: [], sales: [], expenses: [],
             storeProfile: { name: currentUser.storeName, email: currentUser.email, phone: '', targetMargin: 20 },
             createdAt: new Date().toISOString()
           });
-          setIsDataLoaded(true);
+          initializeEmptyState(currentUser.storeName, currentUser.email);
         }
       }, (error) => {
-        console.error("Erro na sincronização:", error);
+        console.error("Erro crítico na sincronização:", error);
+        alert("Erro de conexão com o banco de dados. Verifique sua internet ou as chaves de API.");
       });
     }
 
@@ -147,31 +138,105 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     };
   }, [isAuthenticated, currentUser]);
 
-  // --- ACTIONS ---
-
-  const addVehicle = (v: Vehicle) => setVehicles(prev => [v, ...prev]);
-  const updateVehicle = (v: Vehicle) => setVehicles(prev => prev.map(item => item.id === v.id ? v : item));
-  const removeVehicle = (id: string) => setVehicles(prev => prev.filter(v => v.id !== id));
+  // --- 3. ACTIONS (WRITE TO CLOUD OR LOCAL) ---
   
-  const addCustomer = (c: Customer) => setCustomers(prev => [c, ...prev]);
-  const removeCustomer = (id: string) => setCustomers(prev => prev.filter(c => c.id !== id));
-  
-  const addSale = (s: Sale) => {
-    setSales(prev => [s, ...prev]);
-    const vehicle = vehicles.find(v => v.id === s.vehicleId);
-    if (vehicle) {
-      updateVehicle({ ...vehicle, status: VehicleStatus.SOLD });
+  // Helper para salvar no banco
+  const saveToCloud = async (newData: any) => {
+    if (isFirebaseConfigured && db && currentUser) {
+      const userStoreRef = doc(db, 'stores', currentUser.id);
+      await updateDoc(userStoreRef, { ...newData, lastUpdated: new Date().toISOString() });
     }
   };
-  const addExpense = (e: Expense) => setExpenses(prev => [e, ...prev]);
-  const removeExpense = (id: string) => setExpenses(prev => prev.filter(e => e.id !== id));
 
-  const updateStoreProfile = (p: StoreProfile) => setStoreProfile(p);
+  const addVehicle = async (v: Vehicle) => {
+    if (isFirebaseConfigured && db) {
+      // Cloud Mode: Envia para o banco, o onSnapshot atualizará a tela
+      const newVehicles = [v, ...vehicles];
+      await saveToCloud({ vehicles: newVehicles });
+    } else {
+      // Local Mode
+      setVehicles(prev => [v, ...prev]);
+    }
+  };
+
+  const updateVehicle = async (v: Vehicle) => {
+    if (isFirebaseConfigured && db) {
+      const newVehicles = vehicles.map(item => item.id === v.id ? v : item);
+      await saveToCloud({ vehicles: newVehicles });
+    } else {
+      setVehicles(prev => prev.map(item => item.id === v.id ? v : item));
+    }
+  };
+
+  const removeVehicle = async (id: string) => {
+    if (isFirebaseConfigured && db) {
+      const newVehicles = vehicles.filter(v => v.id !== id);
+      await saveToCloud({ vehicles: newVehicles });
+    } else {
+      setVehicles(prev => prev.filter(v => v.id !== id));
+    }
+  };
+  
+  const addCustomer = async (c: Customer) => {
+    if (isFirebaseConfigured && db) {
+      const newCustomers = [c, ...customers];
+      await saveToCloud({ customers: newCustomers });
+    } else {
+      setCustomers(prev => [c, ...prev]);
+    }
+  };
+
+  const removeCustomer = async (id: string) => {
+    if (isFirebaseConfigured && db) {
+      const newCustomers = customers.filter(c => c.id !== id);
+      await saveToCloud({ customers: newCustomers });
+    } else {
+      setCustomers(prev => prev.filter(c => c.id !== id));
+    }
+  };
+  
+  const addSale = async (s: Sale) => {
+    if (isFirebaseConfigured && db) {
+      const newSales = [s, ...sales];
+      // Também atualiza o status do veículo para vendido
+      const newVehicles = vehicles.map(v => v.id === s.vehicleId ? { ...v, status: VehicleStatus.SOLD } : v);
+      await saveToCloud({ sales: newSales, vehicles: newVehicles });
+    } else {
+      setSales(prev => [s, ...prev]);
+      setVehicles(prev => prev.map(v => v.id === s.vehicleId ? { ...v, status: VehicleStatus.SOLD } : v));
+    }
+  };
+
+  const addExpense = async (e: Expense) => {
+    if (isFirebaseConfigured && db) {
+      const newExpenses = [e, ...expenses];
+      await saveToCloud({ expenses: newExpenses });
+    } else {
+      setExpenses(prev => [e, ...prev]);
+    }
+  };
+
+  const removeExpense = async (id: string) => {
+    if (isFirebaseConfigured && db) {
+      const newExpenses = expenses.filter(e => e.id !== id);
+      await saveToCloud({ expenses: newExpenses });
+    } else {
+      setExpenses(prev => prev.filter(e => e.id !== id));
+    }
+  };
+
+  const updateStoreProfile = async (p: StoreProfile) => {
+    if (isFirebaseConfigured && db) {
+      await saveToCloud({ storeProfile: p });
+    } else {
+      setStoreProfile(p);
+    }
+  };
   
   // --- AUTHENTICATION ---
 
   const login = async (email: string, password: string): Promise<boolean> => {
-    // 1. Check Cloud Auth (Simulated using Users Collection)
+    // 1. Check Cloud Auth
     if (isFirebaseConfigured && db) {
       try {
         const usersRef = collection(db, 'users');
@@ -184,9 +249,14 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
           setCurrentUser(userData);
           setIsAuthenticated(true);
           return true;
+        } else {
+            console.log("Usuário não encontrado no Firebase com essas credenciais.");
+            return false;
         }
       } catch (err) {
         console.error("Erro no login nuvem:", err);
+        alert("Erro ao conectar ao servidor. Verifique o console.");
+        return false;
       }
     }
 
@@ -196,7 +266,7 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
       setCurrentUser(localUser);
       setIsAuthenticated(true);
       
-      // Load Local Data
+      // Load Local Data if Cloud is NOT available
       if (!isFirebaseConfigured) {
         const storageKey = `${DATA_STORAGE_PREFIX}${localUser.id}`;
         const savedDataString = localStorage.getItem(storageKey);
@@ -209,7 +279,7 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
           setStoreProfile(userData.storeProfile || EMPTY_STORE_PROFILE);
           setIsDataLoaded(true);
         } else {
-          initializeEmptyData(localUser);
+          initializeEmptyState(localUser.storeName, localUser.email);
         }
       }
       return true;
@@ -236,82 +306,9 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
         // Initialize Store Data
         await setDoc(doc(db, 'stores', newUser.id), {
           vehicles: [], customers: [], sales: [], expenses: [],
-          storeProfile: { name: userData.storeName, email: userData.email, phone: '', targetMargin: 20 }
+          storeProfile: { name: userData.storeName, email: userData.email, phone: '', targetMargin: 20 },
+          createdAt: new Date().toISOString()
         });
       } catch (err) {
         console.error("Erro registro nuvem:", err);
         return false;
-      }
-    } else {
-      // Register Local
-      if (users.find(u => u.email === userData.email)) return false;
-      const updatedUsers = [...users, newUser];
-      setUsers(updatedUsers);
-      localStorage.setItem(USERS_STORAGE_KEY, JSON.stringify(updatedUsers));
-      initializeEmptyData(newUser);
-    }
-    
-    setCurrentUser(newUser);
-    setIsAuthenticated(true);
-    return true;
-  };
-
-  const logout = () => {
-    setCurrentUser(null);
-    setIsAuthenticated(false);
-    setIsDataLoaded(false);
-    setVehicles([]);
-    setCustomers([]);
-    setSales([]);
-    setExpenses([]);
-    setStoreProfile(EMPTY_STORE_PROFILE);
-  };
-
-  // --- IMPORT/EXPORT ---
-  const exportData = () => {
-    if (!currentUser) return;
-    const data = {
-      vehicles, customers, sales, expenses, storeProfile,
-      user: { email: currentUser.email, storeName: currentUser.storeName }
-    };
-    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `backup_autocars_${new Date().toISOString().split('T')[0]}.json`;
-    a.click();
-    URL.revokeObjectURL(url);
-  };
-
-  const importData = (jsonData: string): boolean => {
-    try {
-      const data = JSON.parse(jsonData);
-      if (data.vehicles && Array.isArray(data.vehicles)) setVehicles(data.vehicles);
-      if (data.customers && Array.isArray(data.customers)) setCustomers(data.customers);
-      if (data.sales && Array.isArray(data.sales)) setSales(data.sales);
-      if (data.expenses && Array.isArray(data.expenses)) setExpenses(data.expenses);
-      if (data.storeProfile) setStoreProfile(data.storeProfile);
-      return true;
-    } catch (e) {
-      console.error("Erro na importação:", e);
-      return false;
-    }
-  };
-
-  return (
-    <StoreContext.Provider value={{ 
-      vehicles, customers, sales, expenses, storeProfile, isAuthenticated, currentUser,
-      isCloudSyncing: isFirebaseConfigured,
-      addVehicle, updateVehicle, removeVehicle, addCustomer, removeCustomer, addSale, addExpense, removeExpense, updateStoreProfile,
-      login, register, logout, exportData, importData
-    }}>
-      {children}
-    </StoreContext.Provider>
-  );
-};
-
-export const useStore = () => {
-  const context = useContext(StoreContext);
-  if (!context) throw new Error("useStore must be used within StoreProvider");
-  return context;
-};
