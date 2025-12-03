@@ -2,29 +2,16 @@
 import React, { createContext, useContext, useState, ReactNode, useEffect } from 'react';
 import { Vehicle, Customer, Sale, Expense, VehicleStatus, FuelType, StoreProfile, User } from '../types';
 
-// --- MOCK DATABASE (In-Memory) ---
-// This ensures data is separated by User ID. 
-// In a real app, this would be a backend database.
-interface UserData {
-  vehicles: Vehicle[];
-  customers: Customer[];
-  sales: Sale[];
-  expenses: Expense[];
-  storeProfile: StoreProfile;
-}
+// --- CONSTANTES ---
+const USERS_STORAGE_KEY = 'autocars_users';
+const DATA_STORAGE_PREFIX = 'autocars_data_';
 
-// Armazena dados de todos os usuários: { 'user_id_1': { ...data }, 'user_id_2': { ...data } }
-const APP_DATA: Record<string, UserData> = {};
-
-// --- INITIAL STATES ---
 const EMPTY_STORE_PROFILE: StoreProfile = {
   name: '',
   email: '',
   phone: '',
   targetMargin: 20
 };
-
-const INITIAL_USERS: User[] = [];
 
 interface StoreContextType {
   vehicles: Vehicle[];
@@ -51,35 +38,51 @@ interface StoreContextType {
 const StoreContext = createContext<StoreContextType | undefined>(undefined);
 
 export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
-  // Global List of Registered Users
-  const [users, setUsers] = useState<User[]>(INITIAL_USERS);
+  // 1. Carregar usuários registrados do LocalStorage ao iniciar
+  const [users, setUsers] = useState<User[]>(() => {
+    try {
+      const savedUsers = localStorage.getItem(USERS_STORAGE_KEY);
+      return savedUsers ? JSON.parse(savedUsers) : [];
+    } catch (error) {
+      console.error("Erro ao carregar usuários:", error);
+      return [];
+    }
+  });
   
-  // Current Session State
+  // Estado da Sessão Atual
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
 
-  // Data States (Loaded per user)
+  // Estados de Dados (Iniciam vazios, são carregados no Login)
   const [vehicles, setVehicles] = useState<Vehicle[]>([]);
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [sales, setSales] = useState<Sale[]>([]);
   const [expenses, setExpenses] = useState<Expense[]>([]);
   const [storeProfile, setStoreProfile] = useState<StoreProfile>(EMPTY_STORE_PROFILE);
 
-  // --- PERSISTENCE EFFECT ---
-  // Whenever data changes AND we have a logged-in user, save to the Mock DB
+  // --- PERSISTÊNCIA: USUÁRIOS ---
+  // Salva a lista de usuários sempre que um novo for registrado
+  useEffect(() => {
+    localStorage.setItem(USERS_STORAGE_KEY, JSON.stringify(users));
+  }, [users]);
+
+  // --- PERSISTÊNCIA: DADOS DA LOJA ---
+  // Salva os dados da loja atual sempre que houver qualquer alteração
   useEffect(() => {
     if (currentUser && isAuthenticated) {
-      APP_DATA[currentUser.id] = {
+      const storageKey = `${DATA_STORAGE_PREFIX}${currentUser.id}`;
+      const dataToSave = {
         vehicles,
         customers,
         sales,
         expenses,
         storeProfile
       };
+      localStorage.setItem(storageKey, JSON.stringify(dataToSave));
     }
   }, [vehicles, customers, sales, expenses, storeProfile, currentUser, isAuthenticated]);
 
-  // --- ACTIONS ---
+  // --- AÇÕES ---
 
   const addVehicle = (v: Vehicle) => setVehicles(prev => [v, ...prev]);
   const updateVehicle = (v: Vehicle) => setVehicles(prev => prev.map(item => item.id === v.id ? v : item));
@@ -103,73 +106,73 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
   const login = (email: string, password: string): boolean => {
     const user = users.find(u => u.email === email && u.password === password);
     if (user) {
-      // 1. Set User
+      // 1. Definir Usuário
       setCurrentUser(user);
       setIsAuthenticated(true);
       
-      // 2. Load User Data from "DB" or Initialize Empty
-      const userData = APP_DATA[user.id] || {
-        vehicles: [],
-        customers: [],
-        sales: [],
-        expenses: [],
-        storeProfile: {
-          name: user.storeName,
-          email: user.email,
-          phone: '',
-          targetMargin: 20
+      // 2. Carregar Dados do LocalStorage Específico do Usuário
+      const storageKey = `${DATA_STORAGE_PREFIX}${user.id}`;
+      const savedDataString = localStorage.getItem(storageKey);
+      
+      if (savedDataString) {
+        // Usuário já tem dados, carregar
+        try {
+          const userData = JSON.parse(savedDataString);
+          setVehicles(userData.vehicles || []);
+          setCustomers(userData.customers || []);
+          setSales(userData.sales || []);
+          setExpenses(userData.expenses || []);
+          setStoreProfile(userData.storeProfile || {
+            name: user.storeName,
+            email: user.email,
+            phone: '',
+            targetMargin: 20
+          });
+        } catch (e) {
+          console.error("Erro ao processar dados salvos", e);
+          // Fallback seguro se o JSON estiver corrompido
+          initializeEmptyData(user);
         }
-      };
-
-      // 3. Update State with User Data
-      setVehicles(userData.vehicles);
-      setCustomers(userData.customers);
-      setSales(userData.sales);
-      setExpenses(userData.expenses);
-      setStoreProfile(userData.storeProfile);
+      } else {
+        // Edge case: Usuário existe na lista mas não tem dados (limpeza de cache?)
+        initializeEmptyData(user);
+      }
 
       return true;
     }
     return false;
   };
 
+  const initializeEmptyData = (user: User) => {
+     setVehicles([]);
+     setCustomers([]);
+     setSales([]);
+     setExpenses([]);
+     setStoreProfile({
+       name: user.storeName,
+       email: user.email,
+       phone: '',
+       targetMargin: 20
+     });
+  };
+
   const register = (userData: Omit<User, 'id'>): boolean => {
     if (users.find(u => u.email === userData.email)) {
-      return false; // User already exists
+      return false; // Usuário já existe
     }
     
     const newUser: User = { ...userData, id: Date.now().toString() };
-    setUsers(prev => [...prev, newUser]);
     
-    // Initialize Empty Data in "DB"
-    APP_DATA[newUser.id] = {
-      vehicles: [],
-      customers: [],
-      sales: [],
-      expenses: [],
-      storeProfile: {
-        name: userData.storeName,
-        email: userData.email,
-        phone: '',
-        targetMargin: 20
-      }
-    };
+    // Atualiza lista de usuários (o useEffect vai salvar no localStorage)
+    setUsers(prev => [...prev, newUser]);
     
     // Auto Login
     setCurrentUser(newUser);
     setIsAuthenticated(true);
     
-    // Set Empty States for new user
-    setVehicles([]);
-    setCustomers([]);
-    setSales([]);
-    setExpenses([]);
-    setStoreProfile({
-      name: userData.storeName,
-      email: userData.email,
-      phone: '',
-      targetMargin: 20
-    });
+    // Inicializa estados vazios
+    // O useEffect de persistência vai criar a entrada 'autocars_data_ID' automaticamente
+    initializeEmptyData(newUser);
 
     return true;
   };
@@ -177,7 +180,7 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
   const logout = () => {
     setCurrentUser(null);
     setIsAuthenticated(false);
-    // Clear view state for security
+    // Limpar visualização por segurança
     setVehicles([]);
     setCustomers([]);
     setSales([]);
