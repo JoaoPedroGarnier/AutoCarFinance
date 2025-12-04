@@ -36,8 +36,17 @@ const Login: React.FC = () => {
       console.error(err);
       // Tratamento de mensagens de erro amigáveis
       let msg = 'Ocorreu um erro. Tente novamente.';
-      if (err.code === 'auth/invalid-credential') msg = 'Email ou senha incorretos.';
-      if (err.message) msg = err.message; // Captura erros jogados pelo register
+      if (err.code === 'auth/invalid-credential' || err.code === 'auth/wrong-password' || err.code === 'auth/user-not-found') {
+        msg = 'Email ou senha incorretos.';
+      } else if (err.code === 'auth/email-already-in-use') {
+        msg = 'Este email já está cadastrado.';
+      } else if (err.code === 'auth/weak-password') {
+        msg = 'A senha deve ter pelo menos 6 caracteres.';
+      } else if (err.code === 'auth/configuration-not-found' || err.code === 'auth/operation-not-allowed' || err.code === 'auth/admin-restricted-operation') {
+        msg = '⚠️ Configuração Pendente: O método de login "Email/Senha" não está ativado no Firebase Console. Acesse o console do Firebase > Authentication > Sign-in method e ative-o.';
+      } else if (err.message) {
+        msg = err.message;
+      }
       
       setError(msg);
     } finally {
@@ -55,8 +64,8 @@ const Login: React.FC = () => {
         
         <form onSubmit={handleSubmit} className="p-6 space-y-5">
             {error && (
-                <div className="bg-red-50 text-red-600 p-3 rounded-lg text-sm flex items-center gap-2 border border-red-100 animate-in fade-in slide-in-from-top-1">
-                    <AlertTriangle size={16} className="shrink-0" />
+                <div className={`p-3 rounded-lg text-sm flex items-start gap-2 border animate-in fade-in slide-in-from-top-1 ${error.includes('Configuração Pendente') ? 'bg-amber-50 text-amber-800 border-amber-200' : 'bg-red-50 text-red-600 border-red-100'}`}>
+                    <AlertTriangle size={16} className="shrink-0 mt-0.5" />
                     <span>{error}</span>
                 </div>
             )}

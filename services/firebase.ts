@@ -52,14 +52,22 @@ const fallbackConfig = {
   measurementId: "G-VTB1W9DX98"
 };
 
+// Helper para selecionar o primeiro valor não vazio
+const selectConfig = (envKey: string, storedVal: string | undefined, fallbackVal: string) => {
+  const envVal = getEnv(envKey);
+  if (envVal && envVal.trim() !== '') return envVal;
+  if (storedVal && storedVal.trim() !== '') return storedVal;
+  return fallbackVal;
+};
+
 const config = {
-  apiKey: getEnv('VITE_FIREBASE_API_KEY') || storedConfig?.apiKey || fallbackConfig.apiKey,
-  authDomain: getEnv('VITE_FIREBASE_AUTH_DOMAIN') || storedConfig?.authDomain || fallbackConfig.authDomain,
-  projectId: getEnv('VITE_FIREBASE_PROJECT_ID') || storedConfig?.projectId || fallbackConfig.projectId,
-  storageBucket: getEnv('VITE_FIREBASE_STORAGE_BUCKET') || storedConfig?.storageBucket || fallbackConfig.storageBucket,
-  messagingSenderId: getEnv('VITE_FIREBASE_MESSAGING_SENDER_ID') || storedConfig?.messagingSenderId || fallbackConfig.messagingSenderId,
-  appId: getEnv('VITE_FIREBASE_APP_ID') || storedConfig?.appId || fallbackConfig.appId,
-  measurementId: getEnv('VITE_FIREBASE_MEASUREMENT_ID') || storedConfig?.measurementId || fallbackConfig.measurementId
+  apiKey: selectConfig('VITE_FIREBASE_API_KEY', storedConfig?.apiKey, fallbackConfig.apiKey),
+  authDomain: selectConfig('VITE_FIREBASE_AUTH_DOMAIN', storedConfig?.authDomain, fallbackConfig.authDomain),
+  projectId: selectConfig('VITE_FIREBASE_PROJECT_ID', storedConfig?.projectId, fallbackConfig.projectId),
+  storageBucket: selectConfig('VITE_FIREBASE_STORAGE_BUCKET', storedConfig?.storageBucket, fallbackConfig.storageBucket),
+  messagingSenderId: selectConfig('VITE_FIREBASE_MESSAGING_SENDER_ID', storedConfig?.messagingSenderId, fallbackConfig.messagingSenderId),
+  appId: selectConfig('VITE_FIREBASE_APP_ID', storedConfig?.appId, fallbackConfig.appId),
+  measurementId: selectConfig('VITE_FIREBASE_MEASUREMENT_ID', storedConfig?.measurementId, fallbackConfig.measurementId)
 };
 
 console.log("[AutoCars Debug] Inicializando Firebase...");
