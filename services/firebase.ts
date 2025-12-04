@@ -1,5 +1,7 @@
+
 import { initializeApp } from 'firebase/app';
 import { getFirestore } from 'firebase/firestore';
+import { getAuth } from 'firebase/auth';
 
 // Avoid TypeScript errors with process.env
 declare const process: any;
@@ -24,5 +26,6 @@ const getFirebaseConfig = () => {
 const config = getFirebaseConfig();
 const app = config ? initializeApp(config) : null;
 export const db = app ? getFirestore(app) : null;
+export const auth = app ? getAuth(app) : null;
 
 export const isFirebaseConfigured = !!app;

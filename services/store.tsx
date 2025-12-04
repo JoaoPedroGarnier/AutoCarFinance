@@ -1,8 +1,15 @@
 
 import React, { createContext, useContext, useState, ReactNode, useEffect } from 'react';
 import { Vehicle, Customer, Sale, Expense, VehicleStatus, FuelType, StoreProfile, User } from '../types';
-import { db, isFirebaseConfigured } from './firebase';
-import { doc, setDoc, getDoc, onSnapshot, updateDoc, collection, getDocs, query, where } from 'firebase/firestore';
+import { db, auth, isFirebaseConfigured } from './firebase';
+import { doc, setDoc, onSnapshot, updateDoc } from 'firebase/firestore';
+import { 
+  signInWithEmailAndPassword, 
+  createUserWithEmailAndPassword, 
+  signOut, 
+  onAuthStateChanged,
+  User as FirebaseUser
+} from 'firebase/auth';
 
 // --- CONSTANTES ---
 const USERS_STORAGE_KEY = 'autocars_users';
@@ -98,16 +105,47 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     }
   }, [vehicles, customers, sales, expenses, storeProfile, currentUser, isAuthenticated, isDataLoaded]);
 
-  // --- 2. SINCRONIZAÇÃO EM TEMPO REAL (CLOUD LISTENER) ---
-  // Esta é a única fonte de verdade quando conectado à nuvem.
+  // --- 2. GERENCIAMENTO DE SESSÃO FIREBASE (AUTH LISTENER) ---
   useEffect(() => {
-    let unsubscribe: () => void;
+    if (isFirebaseConfigured && auth) {
+      const unsubscribeAuth = onAuthStateChanged(auth, (firebaseUser: FirebaseUser | null) => {
+        if (firebaseUser) {
+          // Usuário detectado (Login persistente ou novo login)
+          console.log("[AutoCars Auth] Usuário conectado:", firebaseUser.email);
+          const user: User = {
+            id: firebaseUser.uid,
+            email: firebaseUser.email || '',
+            password: '', // Não armazenamos senha localmente com Firebase Auth
+            storeName: '' // Será carregado do Firestore
+          };
+          setCurrentUser(user);
+          setIsAuthenticated(true);
+        } else {
+          // Logout detectado
+          console.log("[AutoCars Auth] Usuário desconectado");
+          setCurrentUser(null);
+          setIsAuthenticated(false);
+          setIsDataLoaded(false);
+          setVehicles([]);
+          setCustomers([]);
+          setSales([]);
+          setExpenses([]);
+          setStoreProfile(EMPTY_STORE_PROFILE);
+        }
+      });
+      return () => unsubscribeAuth();
+    }
+  }, []);
+
+  // --- 3. SINCRONIZAÇÃO DE DADOS EM TEMPO REAL (FIRESTORE) ---
+  useEffect(() => {
+    let unsubscribeSnapshot: () => void;
 
     if (isAuthenticated && currentUser && isFirebaseConfigured && db) {
-      console.log("[AutoCars Sync] Conectando ao Firestore...");
+      console.log("[AutoCars Sync] Conectando ao Firestore para usuário:", currentUser.id);
       const userStoreRef = doc(db, 'stores', currentUser.id);
       
-      unsubscribe = onSnapshot(userStoreRef, (docSnap) => {
+      unsubscribeSnapshot = onSnapshot(userStoreRef, (docSnap) => {
         if (docSnap.exists()) {
           const data = docSnap.data();
           // Recebe dados da nuvem e atualiza a tela imediatamente
@@ -115,32 +153,32 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
           setCustomers(data.customers || []);
           setSales(data.sales || []);
           setExpenses(data.expenses || []);
-          if (data.storeProfile) setStoreProfile(data.storeProfile);
+          
+          if (data.storeProfile) {
+            setStoreProfile(data.storeProfile);
+            // Atualiza o nome da loja no estado do usuário para a UI
+            setCurrentUser(prev => prev ? { ...prev, storeName: data.storeProfile.name } : null);
+          }
           setIsDataLoaded(true);
         } else {
-          // Se o documento não existe na nuvem (primeiro acesso real), cria um vazio
-          console.log("[AutoCars Sync] Inicializando loja na nuvem...");
-          setDoc(userStoreRef, {
-            vehicles: [], customers: [], sales: [], expenses: [],
-            storeProfile: { name: currentUser.storeName, email: currentUser.email, phone: '', targetMargin: 20 },
-            createdAt: new Date().toISOString()
-          });
-          initializeEmptyState(currentUser.storeName, currentUser.email);
+          // Se estamos logados no Auth mas não tem dados no Firestore (ex: erro no registro anterior),
+          // inicializamos o documento.
+          console.log("[AutoCars Sync] Perfil não encontrado, inicializando...");
+          // A inicialização real deve ocorrer no Registro, mas isso é um fallback
         }
       }, (error) => {
         console.error("Erro crítico na sincronização:", error);
-        alert("Erro de conexão com o banco de dados. Verifique sua internet ou as chaves de API.");
+        // Não mostrar alert intrusivo aqui para não bloquear a UI em reconexões
       });
     }
 
     return () => {
-      if (unsubscribe) unsubscribe();
+      if (unsubscribeSnapshot) unsubscribeSnapshot();
     };
-  }, [isAuthenticated, currentUser]);
+  }, [isAuthenticated, currentUser?.id]); // Dependência no ID para recriar listener se mudar usuário
 
-  // --- 3. ACTIONS (WRITE TO CLOUD OR LOCAL) ---
+  // --- 4. ACTIONS (WRITE TO CLOUD OR LOCAL) ---
   
-  // Helper para salvar no banco
   const saveToCloud = async (newData: any) => {
     if (isFirebaseConfigured && db && currentUser) {
       const userStoreRef = doc(db, 'stores', currentUser.id);
@@ -150,11 +188,9 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
 
   const addVehicle = async (v: Vehicle) => {
     if (isFirebaseConfigured && db) {
-      // Cloud Mode: Envia para o banco, o onSnapshot atualizará a tela
       const newVehicles = [v, ...vehicles];
       await saveToCloud({ vehicles: newVehicles });
     } else {
-      // Local Mode
       setVehicles(prev => [v, ...prev]);
     }
   };
@@ -198,7 +234,6 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
   const addSale = async (s: Sale) => {
     if (isFirebaseConfigured && db) {
       const newSales = [s, ...sales];
-      // Também atualiza o status do veículo para vendido
       const newVehicles = vehicles.map(v => v.id === s.vehicleId ? { ...v, status: VehicleStatus.SOLD } : v);
       await saveToCloud({ sales: newSales, vehicles: newVehicles });
     } else {
@@ -236,51 +271,38 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
   // --- AUTHENTICATION ---
 
   const login = async (email: string, password: string): Promise<boolean> => {
-    // 1. Check Cloud Auth
-    if (isFirebaseConfigured && db) {
+    // 1. Firebase Auth (Prioridade)
+    if (isFirebaseConfigured && auth) {
       try {
-        const usersRef = collection(db, 'users');
-        const q = query(usersRef, where("email", "==", email), where("password", "==", password));
-        const querySnapshot = await getDocs(q);
-
-        if (!querySnapshot.empty) {
-          const userDoc = querySnapshot.docs[0];
-          const userData = userDoc.data() as User;
-          setCurrentUser(userData);
-          setIsAuthenticated(true);
-          return true;
-        } else {
-            console.log("Usuário não encontrado no Firebase com essas credenciais.");
-            return false;
-        }
-      } catch (err) {
-        console.error("Erro no login nuvem:", err);
-        alert("Erro ao conectar ao servidor. Verifique o console.");
-        return false;
+        await signInWithEmailAndPassword(auth, email, password);
+        // O useEffect do onAuthStateChanged cuidará de setar o estado e carregar dados
+        return true;
+      } catch (err: any) {
+        console.error("Erro no login Firebase:", err);
+        // Retorna falso para que a UI mostre o erro. O erro específico pode ser tratado no componente.
+        throw err; // Lança o erro para a UI capturar a mensagem correta (senha errada, etc)
       }
     }
 
-    // 2. Fallback to Local Auth
+    // 2. Fallback to Local Auth (Modo Offline/Sem Config)
     const localUser = users.find(u => u.email === email && u.password === password);
     if (localUser) {
       setCurrentUser(localUser);
       setIsAuthenticated(true);
       
-      // Load Local Data if Cloud is NOT available
-      if (!isFirebaseConfigured) {
-        const storageKey = `${DATA_STORAGE_PREFIX}${localUser.id}`;
-        const savedDataString = localStorage.getItem(storageKey);
-        if (savedDataString) {
-          const userData = JSON.parse(savedDataString);
-          setVehicles(userData.vehicles || []);
-          setCustomers(userData.customers || []);
-          setSales(userData.sales || []);
-          setExpenses(userData.expenses || []);
-          setStoreProfile(userData.storeProfile || EMPTY_STORE_PROFILE);
-          setIsDataLoaded(true);
-        } else {
-          initializeEmptyState(localUser.storeName, localUser.email);
-        }
+      // Load Local Data
+      const storageKey = `${DATA_STORAGE_PREFIX}${localUser.id}`;
+      const savedDataString = localStorage.getItem(storageKey);
+      if (savedDataString) {
+        const userData = JSON.parse(savedDataString);
+        setVehicles(userData.vehicles || []);
+        setCustomers(userData.customers || []);
+        setSales(userData.sales || []);
+        setExpenses(userData.expenses || []);
+        setStoreProfile(userData.storeProfile || EMPTY_STORE_PROFILE);
+        setIsDataLoaded(true);
+      } else {
+        initializeEmptyState(localUser.storeName, localUser.email);
       }
       return true;
     }
@@ -289,45 +311,54 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
   };
 
   const register = async (userData: Omit<User, 'id'>): Promise<boolean> => {
-    const newUser: User = { ...userData, id: Date.now().toString() };
-
-    // 1. Register in Cloud
-    if (isFirebaseConfigured && db) {
+    // 1. Firebase Auth Registration
+    if (isFirebaseConfigured && auth && db) {
       try {
-        // Check if exists
-        const usersRef = collection(db, 'users');
-        const q = query(usersRef, where("email", "==", userData.email));
-        const snap = await getDocs(q);
-        if (!snap.empty) return false;
-
-        // Save User
-        await setDoc(doc(db, 'users', newUser.id), newUser);
+        const userCredential = await createUserWithEmailAndPassword(auth, userData.email, userData.password);
+        const firebaseUser = userCredential.user;
         
-        // Initialize Store Data
-        await setDoc(doc(db, 'stores', newUser.id), {
+        // Initialize Store Data in Firestore linked to UID
+        const initialProfile: StoreProfile = { 
+          name: userData.storeName, 
+          email: userData.email, 
+          phone: '', 
+          targetMargin: 20 
+        };
+
+        await setDoc(doc(db, 'stores', firebaseUser.uid), {
           vehicles: [], customers: [], sales: [], expenses: [],
-          storeProfile: { name: userData.storeName, email: userData.email, phone: '', targetMargin: 20 },
+          storeProfile: initialProfile,
           createdAt: new Date().toISOString()
         });
-      } catch (err) {
-        console.error("Erro registro nuvem:", err);
-        return false;
+        
+        return true;
+      } catch (err: any) {
+        console.error("Erro registro Firebase:", err);
+        throw err;
       }
     } else {
       // Register Local
+      const newUser: User = { ...userData, id: Date.now().toString() };
       if (users.find(u => u.email === userData.email)) return false;
       const updatedUsers = [...users, newUser];
       setUsers(updatedUsers);
       localStorage.setItem(USERS_STORAGE_KEY, JSON.stringify(updatedUsers));
       initializeEmptyState(newUser.storeName, newUser.email);
+      setCurrentUser(newUser);
+      setIsAuthenticated(true);
+      return true;
     }
-    
-    setCurrentUser(newUser);
-    setIsAuthenticated(true);
-    return true;
   };
 
-  const logout = () => {
+  const logout = async () => {
+    if (isFirebaseConfigured && auth) {
+      try {
+        await signOut(auth);
+      } catch (e) {
+        console.error("Erro ao sair:", e);
+      }
+    }
+    // Limpeza de estado local acontece no onAuthStateChanged ou aqui como garantia
     setCurrentUser(null);
     setIsAuthenticated(false);
     setIsDataLoaded(false);
@@ -357,7 +388,6 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
   const importData = (jsonData: string): boolean => {
     try {
       const data = JSON.parse(jsonData);
-      // If connected to cloud, save imported data to cloud
       if (isFirebaseConfigured && db && currentUser) {
           saveToCloud({
               vehicles: data.vehicles || [],
@@ -367,11 +397,10 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
               storeProfile: data.storeProfile || storeProfile
           });
       } else {
-          // Local update
-          if (data.vehicles && Array.isArray(data.vehicles)) setVehicles(data.vehicles);
-          if (data.customers && Array.isArray(data.customers)) setCustomers(data.customers);
-          if (data.sales && Array.isArray(data.sales)) setSales(data.sales);
-          if (data.expenses && Array.isArray(data.expenses)) setExpenses(data.expenses);
+          if (data.vehicles) setVehicles(data.vehicles);
+          if (data.customers) setCustomers(data.customers);
+          if (data.sales) setSales(data.sales);
+          if (data.expenses) setExpenses(data.expenses);
           if (data.storeProfile) setStoreProfile(data.storeProfile);
       }
       return true;

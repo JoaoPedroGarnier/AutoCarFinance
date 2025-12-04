@@ -11,54 +11,70 @@ const Login: React.FC = () => {
   const [password, setPassword] = useState('');
   const [storeName, setStoreName] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
-  const [accessCode, setAccessCode] = useState(''); // Estado para o código de acesso
+  const [accessCode, setAccessCode] = useState(''); 
+  const [isLoading, setIsLoading] = useState(false);
   
   const [error, setError] = useState('');
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const getFirebaseErrorMessage = (err: any) => {
+    const code = err.code || '';
+    if (code.includes('auth/invalid-credential') || code.includes('auth/wrong-password') || code.includes('auth/user-not-found')) {
+      return 'E-mail ou senha incorretos.';
+    }
+    if (code.includes('auth/email-already-in-use')) {
+      return 'Este e-mail já está em uso por outra conta.';
+    }
+    if (code.includes('auth/weak-password')) {
+      return 'A senha é muito fraca. Use pelo menos 6 caracteres.';
+    }
+    if (code.includes('auth/network-request-failed')) {
+      return 'Erro de conexão. Verifique sua internet.';
+    }
+    return err.message || 'Ocorreu um erro inesperado.';
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
+    setIsLoading(true);
 
-    // Validação Global do Código de Acesso (Login e Cadastro)
+    // Validação Global do Código de Acesso
     if (accessCode !== 'Auto12@') {
-      setError('Código de acesso incorreto. Você precisa da senha mestra para acessar o sistema.');
+      setError('Código de acesso incorreto.');
+      setIsLoading(false);
       return;
     }
 
-    if (isRegistering) {
-      // Logic for Registration
-      if (password !== confirmPassword) {
-        setError('As senhas não conferem.');
-        return;
+    try {
+      if (isRegistering) {
+        if (password !== confirmPassword) {
+          setError('As senhas não conferem.');
+          setIsLoading(false);
+          return;
+        }
+        if (password.length < 6) {
+          setError('A senha deve ter pelo menos 6 caracteres.');
+          setIsLoading(false);
+          return;
+        }
+        
+        await register({ email, password, storeName });
+        // Sucesso no registro (redireciona auto pelo estado)
+      } else {
+        await login(email, password);
+        // Sucesso no login
       }
-      if (password.length < 3) {
-        setError('A senha deve ter pelo menos 3 caracteres.');
-        return;
-      }
-      
-      const success = register({ email, password, storeName });
-      if (!success) {
-        setError('Este e-mail já está cadastrado ou houve erro no servidor.');
-      }
-    } else {
-      // Logic for Login
-      const success = login(email, password);
-      // Como o login agora pode ser async (promessa), precisamos tratar diferente se necessário,
-      // mas o useStore.login atual retorna Promise<boolean>.
-      // O componente precisa esperar a promessa.
-      Promise.resolve(success).then(res => {
-          if (!res) {
-            setError('E-mail ou senha inválidos, ou erro de conexão.');
-          }
-      });
+    } catch (err: any) {
+      console.error(err);
+      setError(getFirebaseErrorMessage(err));
+    } finally {
+      setIsLoading(false);
     }
   };
 
   const toggleMode = () => {
     setIsRegistering(!isRegistering);
     setError('');
-    // Mantemos o accessCode preenchido para facilitar a troca de abas
-    // Limpamos apenas os dados pessoais
     setEmail('');
     setPassword('');
     setConfirmPassword('');
@@ -75,7 +91,7 @@ const Login: React.FC = () => {
           </div>
           <h2 className="text-2xl font-bold text-slate-800">AutoCars</h2>
           <p className="text-slate-500 text-sm mt-1">
-            {isRegistering ? 'Crie sua conta para começar' : 'Entre para gerenciar sua loja'}
+            {isRegistering ? 'Crie sua conta na Nuvem' : 'Acesse de qualquer lugar'}
           </p>
         </div>
 
@@ -88,7 +104,6 @@ const Login: React.FC = () => {
             </div>
           )}
 
-          {/* Campo de Código de Acesso (Agora visível SEMPRE) */}
           <div className="space-y-1">
             <label className="text-sm font-medium text-slate-700 ml-1">Código de Acesso</label>
             <div className="relative">
@@ -96,8 +111,8 @@ const Login: React.FC = () => {
               <input 
                 type="password" 
                 required
-                placeholder="Digite o código de acesso"
-                className="w-full pl-10 p-3 bg-white border border-slate-300 rounded-xl focus:ring-2 focus:ring-brand-500 focus:border-brand-500 outline-none transition-all placeholder:text-slate-400 text-slate-800"
+                placeholder="Chave de segurança"
+                className="w-full pl-10 p-3 bg-white border border-slate-300 rounded-xl focus:ring-2 focus:ring-brand-500 outline-none transition-all placeholder:text-slate-400 text-slate-800"
                 value={accessCode}
                 onChange={(e) => setAccessCode(e.target.value)}
               />
@@ -113,7 +128,7 @@ const Login: React.FC = () => {
                   type="text" 
                   required={isRegistering}
                   placeholder="Minha Concessionária"
-                  className="w-full pl-10 p-3 bg-white border border-slate-300 rounded-xl focus:ring-2 focus:ring-brand-500 focus:border-brand-500 outline-none transition-all placeholder:text-slate-400 text-slate-800"
+                  className="w-full pl-10 p-3 bg-white border border-slate-300 rounded-xl focus:ring-2 focus:ring-brand-500 outline-none transition-all placeholder:text-slate-400 text-slate-800"
                   value={storeName}
                   onChange={(e) => setStoreName(e.target.value)}
                 />
@@ -129,7 +144,7 @@ const Login: React.FC = () => {
                 type="email" 
                 required
                 placeholder="seu@email.com"
-                className="w-full pl-10 p-3 bg-white border border-slate-300 rounded-xl focus:ring-2 focus:ring-brand-500 focus:border-brand-500 outline-none transition-all placeholder:text-slate-400 text-slate-800"
+                className="w-full pl-10 p-3 bg-white border border-slate-300 rounded-xl focus:ring-2 focus:ring-brand-500 outline-none transition-all placeholder:text-slate-400 text-slate-800"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
               />
@@ -143,8 +158,8 @@ const Login: React.FC = () => {
               <input 
                 type="password" 
                 required
-                placeholder="••••••••"
-                className="w-full pl-10 p-3 bg-white border border-slate-300 rounded-xl focus:ring-2 focus:ring-brand-500 focus:border-brand-500 outline-none transition-all placeholder:text-slate-400 text-slate-800"
+                placeholder="Mínimo 6 caracteres"
+                className="w-full pl-10 p-3 bg-white border border-slate-300 rounded-xl focus:ring-2 focus:ring-brand-500 outline-none transition-all placeholder:text-slate-400 text-slate-800"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
               />
@@ -159,8 +174,8 @@ const Login: React.FC = () => {
                <input 
                  type="password" 
                  required={isRegistering}
-                 placeholder="••••••••"
-                 className="w-full pl-10 p-3 bg-white border border-slate-300 rounded-xl focus:ring-2 focus:ring-brand-500 focus:border-brand-500 outline-none transition-all placeholder:text-slate-400 text-slate-800"
+                 placeholder="Repita a senha"
+                 className="w-full pl-10 p-3 bg-white border border-slate-300 rounded-xl focus:ring-2 focus:ring-brand-500 outline-none transition-all placeholder:text-slate-400 text-slate-800"
                  value={confirmPassword}
                  onChange={(e) => setConfirmPassword(e.target.value)}
                />
@@ -170,10 +185,11 @@ const Login: React.FC = () => {
 
           <button 
             type="submit"
-            className="w-full bg-brand-600 hover:bg-brand-700 text-white p-3 rounded-xl font-medium flex items-center justify-center gap-2 transition-all shadow-lg shadow-brand-200 active:scale-[0.98]"
+            disabled={isLoading}
+            className="w-full bg-brand-600 hover:bg-brand-700 text-white p-3 rounded-xl font-medium flex items-center justify-center gap-2 transition-all shadow-lg shadow-brand-200 active:scale-[0.98] disabled:opacity-70 disabled:cursor-not-allowed"
           >
-            {isRegistering ? 'Criar Conta' : 'Entrar no Sistema'}
-            {isRegistering ? <UserPlus size={20} /> : <ArrowRight size={20} />}
+            {isLoading ? 'Processando...' : (isRegistering ? 'Criar Conta' : 'Entrar no Sistema')}
+            {!isLoading && (isRegistering ? <UserPlus size={20} /> : <ArrowRight size={20} />)}
           </button>
         </form>
         
