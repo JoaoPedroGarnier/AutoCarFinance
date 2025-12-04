@@ -1,10 +1,10 @@
 
 import React, { useState } from 'react';
 import { useStore } from '../services/store';
-import { Mail, Lock, ArrowRight, Store, AlertTriangle, Cloud, Info, LogIn, Key, Smartphone, Laptop } from 'lucide-react';
+import { Mail, Lock, ArrowRight, Store, AlertTriangle, Info, Key, Laptop } from 'lucide-react';
 
 const Login: React.FC = () => {
-  const { login, register, isCloudSyncing, resetPassword } = useStore();
+  const { login, register, resetPassword } = useStore();
   const [isRegistering, setIsRegistering] = useState(false);
   const [showForgotPassword, setShowForgotPassword] = useState(false);
   
@@ -31,20 +31,16 @@ const Login: React.FC = () => {
         setIsLoading(true);
         try {
             await resetPassword(email);
-            setSuccessMessage('Email de redefinição enviado! Verifique sua caixa de entrada.');
-            setTimeout(() => {
-                setShowForgotPassword(false);
-                setSuccessMessage('');
-            }, 5000);
+            // Em modo local, o resetPassword lança um alert com a senha, então se passar, ok.
+            setShowForgotPassword(false);
         } catch (err: any) {
-            setError(err.message || 'Erro ao enviar email.');
+            setError(err.message || 'Erro ao recuperar senha.');
         } finally {
             setIsLoading(false);
         }
         return;
     }
 
-    // Validação básica de senha no front-end para evitar rejeição da API
     if (password.length < 6) {
         setError('A senha deve ter no mínimo 6 caracteres.');
         return;
@@ -67,32 +63,14 @@ const Login: React.FC = () => {
       }
     } catch (err: any) {
       console.error(err);
-      // Tratamento de mensagens de erro amigáveis
       let msg = 'Ocorreu um erro. Tente novamente.';
       
       if (err.code === 'auth/email-already-in-use') {
-        msg = 'EMAIL_DUPLICADO'; // Flag especial tratada no render
-      } else if (err.code === 'auth/invalid-credential' || err.code === 'auth/wrong-password' || err.code === 'auth/user-not-found') {
-        msg = 'Email ou senha incorretos.';
-      } else if (err.code === 'auth/weak-password') {
-        msg = 'A senha deve ter pelo menos 6 caracteres.';
-      } else if (err.code === 'auth/configuration-not-found' || err.code === 'auth/operation-not-allowed' || err.code === 'auth/admin-restricted-operation') {
-        msg = '⚠️ Configuração Pendente: O método de login "Email/Senha" não está ativado no Firebase Console. Acesse o console do Firebase > Authentication > Sign-in method e ative-o.';
+        msg = 'Este email já está cadastrado.';
       } else if (err.code === 'auth/invalid-access-code') {
-        msg = 'Código de acesso inválido. Contate o administrador.';
+        msg = 'Código de acesso incorreto.';
       } else if (err.message) {
         msg = err.message;
-      }
-      
-      // Auto-Login Logic for duplicate email on registration
-      if (msg === 'EMAIL_DUPLICADO' && isRegistering) {
-          try {
-              // Tenta logar silenciosamente
-              const loginSuccess = await login(email, password);
-              if (loginSuccess) return; // Sucesso, o componente vai desmontar
-          } catch {
-              // Se falhar o login automático, mantém o erro de duplicado para o usuário decidir
-          }
       }
       
       setError(msg);
@@ -102,7 +80,7 @@ const Login: React.FC = () => {
   };
 
   const handleInputChange = (setter: React.Dispatch<React.SetStateAction<string>>, value: string) => {
-      setError(''); // Limpa erro ao digitar
+      setError('');
       setter(value);
   };
 
@@ -122,41 +100,9 @@ const Login: React.FC = () => {
             )}
             
             {error && (
-                <div className={`p-3 rounded-lg text-sm flex flex-col gap-2 border animate-in fade-in slide-in-from-top-1 ${error.includes('Configuração Pendente') ? 'bg-amber-50 text-amber-800 border-amber-200' : 'bg-red-50 text-red-600 border-red-100'}`}>
-                    {error === 'EMAIL_DUPLICADO' ? (
-                        <div className="flex flex-col gap-2">
-                             <div className="flex items-center gap-2 font-semibold">
-                                <AlertTriangle size={16} />
-                                <span>Este e-mail já possui conta.</span>
-                             </div>
-                             <button 
-                                type="button" 
-                                onClick={() => { setIsRegistering(false); setError(''); }}
-                                className="bg-white border border-red-200 text-red-700 px-3 py-1.5 rounded-md text-xs font-bold hover:bg-red-50 transition-colors flex items-center justify-center gap-2"
-                             >
-                                <LogIn size={14}/> Fazer Login Agora
-                             </button>
-                        </div>
-                    ) : error === 'Email ou senha incorretos.' && !isRegistering ? (
-                         <div className="flex flex-col gap-2">
-                            <div className="flex items-start gap-2">
-                                <AlertTriangle size={16} className="shrink-0 mt-0.5" />
-                                <span>{error}</span>
-                            </div>
-                            <button 
-                                type="button"
-                                onClick={() => { setShowForgotPassword(true); setError(''); }}
-                                className="text-xs text-red-700 font-bold hover:underline self-end"
-                            >
-                                Esqueci minha senha
-                            </button>
-                        </div>
-                    ) : (
-                        <div className="flex items-start gap-2">
-                            <AlertTriangle size={16} className="shrink-0 mt-0.5" />
-                            <span>{error}</span>
-                        </div>
-                    )}
+                <div className="p-3 rounded-lg text-sm flex items-start gap-2 bg-red-50 text-red-600 border border-red-100 animate-in fade-in">
+                    <AlertTriangle size={16} className="shrink-0 mt-0.5" />
+                    <span>{error}</span>
                 </div>
             )}
 
@@ -168,13 +114,12 @@ const Login: React.FC = () => {
                         <input 
                             required 
                             type="text" 
-                            className="w-full pl-10 p-2.5 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
+                            className="w-full pl-10 p-2.5 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all"
                             placeholder="Código do Vendedor"
                             value={accessCode}
                             onChange={e => handleInputChange(setAccessCode, e.target.value)}
                         />
                     </div>
-                    <p className="text-xs text-slate-400 mt-1 ml-1">Código necessário apenas para o cadastro.</p>
                 </div>
             )}
 
@@ -186,7 +131,7 @@ const Login: React.FC = () => {
                         <input 
                             required 
                             type="text" 
-                            className="w-full pl-10 p-2.5 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
+                            className="w-full pl-10 p-2.5 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all"
                             placeholder="Nome da Loja"
                             value={storeName}
                             onChange={e => handleInputChange(setStoreName, e.target.value)}
@@ -202,7 +147,7 @@ const Login: React.FC = () => {
                     <input 
                         required 
                         type="email" 
-                        className="w-full pl-10 p-2.5 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
+                        className="w-full pl-10 p-2.5 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all"
                         placeholder="seu@email.com"
                         value={email}
                         onChange={e => handleInputChange(setEmail, e.target.value)}
@@ -212,14 +157,25 @@ const Login: React.FC = () => {
 
             {!showForgotPassword && (
                 <div>
-                    <label className="block text-sm font-semibold text-slate-700 mb-1">Senha</label>
+                    <div className="flex justify-between items-center mb-1">
+                        <label className="block text-sm font-semibold text-slate-700">Senha</label>
+                        {!isRegistering && (
+                             <button 
+                                type="button"
+                                onClick={() => { setShowForgotPassword(true); setError(''); }}
+                                className="text-xs text-blue-600 hover:underline"
+                             >
+                                Esqueci a senha
+                            </button>
+                        )}
+                    </div>
                     <div className="relative">
                         <Lock className="absolute left-3 top-3 text-slate-400" size={18} />
                         <input 
                             required 
                             type="password" 
                             minLength={6}
-                            className="w-full pl-10 p-2.5 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
+                            className="w-full pl-10 p-2.5 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all"
                             placeholder="Mínimo 6 caracteres"
                             value={password}
                             onChange={e => handleInputChange(setPassword, e.target.value)}
@@ -237,7 +193,7 @@ const Login: React.FC = () => {
                             required 
                             type="password" 
                             minLength={6}
-                            className="w-full pl-10 p-2.5 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
+                            className="w-full pl-10 p-2.5 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all"
                             placeholder="Repita a senha"
                             value={confirmPassword}
                             onChange={e => handleInputChange(setConfirmPassword, e.target.value)}
@@ -248,9 +204,9 @@ const Login: React.FC = () => {
 
             <button 
                 disabled={isLoading} 
-                className="w-full bg-blue-600 hover:bg-blue-700 text-white p-3 rounded-lg font-bold flex items-center justify-center gap-2 transition-colors shadow-sm disabled:opacity-70 disabled:cursor-not-allowed"
+                className="w-full bg-blue-600 hover:bg-blue-700 text-white p-3 rounded-lg font-bold flex items-center justify-center gap-2 transition-colors shadow-sm disabled:opacity-70"
             >
-                {isLoading ? 'Processando...' : (showForgotPassword ? 'Enviar Email de Recuperação' : (isRegistering ? 'Criar Conta' : 'Entrar'))}
+                {isLoading ? 'Processando...' : (showForgotPassword ? 'Recuperar Senha' : (isRegistering ? 'Criar Conta' : 'Entrar'))}
                 {!isLoading && !showForgotPassword && <ArrowRight size={20} />}
             </button>
         </form>
@@ -277,20 +233,9 @@ const Login: React.FC = () => {
 
         <div className="p-2 bg-slate-100 border-t border-slate-200 text-center">
              <div className="flex items-center justify-center gap-2 text-xs text-slate-500 font-medium">
-                {isCloudSyncing ? <Cloud size={14} className="text-blue-500" /> : <Info size={14} className="text-amber-500" />}
-                <span>
-                    {isCloudSyncing 
-                        ? 'Nuvem Conectada - Sincronização Automática' 
-                        : 'Modo Local (Offline) - Apenas este aparelho'}
-                </span>
+                <Info size={14} className="text-amber-500" />
+                <span>Modo Local (Offline) - Apenas este aparelho</span>
              </div>
-             {isCloudSyncing && !isRegistering && !showForgotPassword && (
-                 <div className="mt-2 flex justify-center text-[11px] text-slate-500 gap-3 items-center bg-white/50 py-1 rounded mx-4">
-                    <span className="flex items-center gap-1"><Smartphone size={12} /> Celular</span>
-                    <span className="flex items-center gap-1"><Laptop size={12} /> Computador</span>
-                    <span className="font-semibold text-blue-600">Acesse em qualquer lugar</span>
-                 </div>
-             )}
         </div>
       </div>
     </div>
