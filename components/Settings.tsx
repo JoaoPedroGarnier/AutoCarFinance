@@ -3,10 +3,10 @@ import React, { useState, useEffect } from 'react';
 import { useStore } from '../services/store';
 import { updateFirebaseConfig, resetFirebaseConfig } from '../services/firebase';
 import { getDropboxAuthUrl, saveDropboxToken, getDropboxToken, clearDropboxToken, uploadToDropbox, downloadFromDropbox } from '../services/dropbox';
-import { Store, Mail, Phone, Save, Download, Upload, Cloud, CloudOff, Info, Database, ChevronDown, ChevronUp, Box, CheckCircle, RefreshCw, Trash2 } from 'lucide-react';
+import { Store, Mail, Phone, Save, Download, Upload, Cloud, CloudOff, Info, Database, ChevronDown, ChevronUp, Box, CheckCircle, RefreshCw, Trash2, Smartphone, Copy } from 'lucide-react';
 
 const Settings: React.FC = () => {
-  const { storeProfile, updateStoreProfile, exportData, getDataForExport, importData, isCloudSyncing } = useStore();
+  const { storeProfile, updateStoreProfile, exportData, getDataForExport, importData, isCloudSyncing, currentUser } = useStore();
   const [formData, setFormData] = useState(storeProfile);
   const [message, setMessage] = useState('');
   
@@ -27,8 +27,6 @@ const Settings: React.FC = () => {
   const [dropboxLoading, setDropboxLoading] = useState(false);
 
   // --- EFFECTS ---
-
-  // Check for Dropbox Token on Mount (Redirect return)
   useEffect(() => {
     // Check if we are returning from Dropbox Auth
     const hash = window.location.hash;
@@ -39,11 +37,9 @@ const Settings: React.FC = () => {
             saveDropboxToken(token);
             setIsDropboxConnected(true);
             setMessage('Dropbox conectado com sucesso!');
-            // Clear hash from URL cleanly
             window.history.replaceState(null, '', window.location.pathname);
         }
     } else {
-        // Check if we already have a token
         if (getDropboxToken()) {
             setIsDropboxConnected(true);
         }
@@ -111,10 +107,7 @@ const Settings: React.FC = () => {
           alert("Por favor, insira a App Key do Dropbox.");
           return;
       }
-      // Save App Key for later
       localStorage.setItem('autocars_dropbox_key', dropboxAppKey);
-      
-      // Redirect to Dropbox
       window.location.href = getDropboxAuthUrl(dropboxAppKey);
   };
 
@@ -156,6 +149,14 @@ const Settings: React.FC = () => {
       }
   };
 
+  const copyUserId = () => {
+    if (currentUser) {
+        navigator.clipboard.writeText(currentUser.id);
+        setMessage("ID copiado para a área de transferência!");
+        setTimeout(() => setMessage(''), 2000);
+    }
+  };
+
   return (
     <div className="max-w-2xl mx-auto space-y-6 pb-12">
       <h2 className="text-2xl font-bold text-slate-800">Configurações da Loja</h2>
@@ -171,15 +172,25 @@ const Settings: React.FC = () => {
         {/* Status da Sincronização */}
         <div className={`p-4 rounded-xl border flex items-center gap-3 ${isCloudSyncing ? 'bg-indigo-50 border-indigo-100 text-indigo-800' : 'bg-amber-50 border-amber-100 text-amber-800'}`}>
            {isCloudSyncing ? <Cloud size={24} className="text-indigo-600" /> : <CloudOff size={24} className="text-amber-600" />}
-           <div>
-             <h3 className="font-bold text-sm uppercase mb-0.5">
+           <div className="flex-1">
+             <h3 className="font-bold text-sm uppercase mb-0.5 flex items-center gap-2">
                {isCloudSyncing ? 'Sincronização em Nuvem Ativa' : 'Modo Local (Offline)'}
              </h3>
              <p className="text-xs opacity-90">
                {isCloudSyncing 
-                 ? 'Seus dados são salvos automaticamente e acessíveis em qualquer dispositivo.' 
+                 ? 'Seus dados são salvos automaticamente. Acesse de qualquer dispositivo usando o mesmo email e senha.' 
                  : 'Seus dados estão salvos apenas neste navegador.'}
              </p>
+             {isCloudSyncing && currentUser && (
+                 <div className="mt-2 flex items-center gap-2">
+                     <div className="text-xs bg-white/50 p-1.5 rounded inline-flex items-center gap-1 font-mono text-indigo-900 border border-indigo-200">
+                        <Smartphone size={10} /> ID Conta: {currentUser.id.substring(0, 8)}...
+                     </div>
+                     <button type="button" onClick={copyUserId} className="text-xs text-indigo-600 hover:underline flex items-center gap-1">
+                        <Copy size={10} /> Copiar
+                     </button>
+                 </div>
+             )}
            </div>
         </div>
 

@@ -1,7 +1,7 @@
 
 import React, { useState } from 'react';
 import { useStore } from '../services/store';
-import { Mail, Lock, ArrowRight, Store, AlertTriangle, Cloud, Info, LogIn, Key } from 'lucide-react';
+import { Mail, Lock, ArrowRight, Store, AlertTriangle, Cloud, Info, LogIn, Key, Smartphone, Laptop } from 'lucide-react';
 
 const Login: React.FC = () => {
   const { login, register, isCloudSyncing, resetPassword } = useStore();
@@ -278,8 +278,19 @@ const Login: React.FC = () => {
         <div className="p-2 bg-slate-100 border-t border-slate-200 text-center">
              <div className="flex items-center justify-center gap-2 text-xs text-slate-500 font-medium">
                 {isCloudSyncing ? <Cloud size={14} className="text-blue-500" /> : <Info size={14} className="text-amber-500" />}
-                <span>{isCloudSyncing ? 'Nuvem Conectada' : 'Modo Local (Offline)'}</span>
+                <span>
+                    {isCloudSyncing 
+                        ? 'Nuvem Conectada - Sincronização Automática' 
+                        : 'Modo Local (Offline) - Apenas este aparelho'}
+                </span>
              </div>
+             {isCloudSyncing && !isRegistering && !showForgotPassword && (
+                 <div className="mt-2 flex justify-center text-[11px] text-slate-500 gap-3 items-center bg-white/50 py-1 rounded mx-4">
+                    <span className="flex items-center gap-1"><Smartphone size={12} /> Celular</span>
+                    <span className="flex items-center gap-1"><Laptop size={12} /> Computador</span>
+                    <span className="font-semibold text-blue-600">Acesse em qualquer lugar</span>
+                 </div>
+             )}
         </div>
       </div>
     </div>

@@ -89,9 +89,13 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
      setIsDataLoaded(true);
   };
 
-  // --- 1. PERSISTÊNCIA LOCAL (FALLBACK) ---
+  // --- 1. PERSISTÊNCIA LOCAL (FALLBACK/OFFLINE ONLY) ---
   useEffect(() => {
-    if (currentUser && isAuthenticated && isDataLoaded && (!isFirebaseConfigured || !db)) {
+    // Apenas salva no localStorage se NÃO estivermos conectados ao banco da nuvem
+    // Isso evita conflitos de versões entre dispositivos
+    const isCloudConnected = isFirebaseConfigured && db && auth?.currentUser;
+    
+    if (currentUser && isAuthenticated && isDataLoaded && !isCloudConnected) {
       const dataToSave = {
         vehicles, customers, sales, expenses, storeProfile, lastUpdated: new Date().toISOString()
       };
@@ -100,44 +104,47 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     }
   }, [vehicles, customers, sales, expenses, storeProfile, currentUser, isAuthenticated, isDataLoaded]);
 
-  // --- 2. GERENCIAMENTO DE SESSÃO FIREBASE ---
+  // --- 2. GERENCIAMENTO DE SESSÃO FIREBASE (MULTI-DEVICE CORE) ---
   useEffect(() => {
     if (isFirebaseConfigured && auth) {
+      // Configura persistência para manter login ao fechar/abrir navegador
       setPersistence(auth, browserLocalPersistence).catch(console.error);
 
       const unsubscribeAuth = onAuthStateChanged(auth, async (firebaseUser: FirebaseUser | null) => {
         if (firebaseUser) {
-          // Se o usuário logou via Firebase, priorizamos os dados da nuvem
+          // Usuário detectado (Login persistente ou novo login em outro dispositivo)
+          console.log("[AutoCars] Usuário autenticado na nuvem:", firebaseUser.email);
+          
           let storeName = '';
           
+          // Tenta buscar o nome da loja imediatamente para melhor UX
           if (db) {
              try {
                  const userDoc = await getDoc(doc(db, 'stores', firebaseUser.uid));
                  if (userDoc.exists()) {
                      const d = userDoc.data();
-                     storeName = d.storeProfile?.name || '';
+                     storeName = d.storeProfile?.name || 'Minha Loja';
                  }
              } catch (e) {
-                 // Ignora erro offline na leitura inicial, o onSnapshot lidará com isso depois
-                 console.warn("[AutoCars] Leitura de perfil inicial falhou (offline):", e);
+                 console.warn("[AutoCars] Leitura de perfil inicial falhou (pode estar offline):", e);
              }
           }
 
           const user: User = {
             id: firebaseUser.uid,
             email: firebaseUser.email || '',
-            password: '', 
+            password: '', // Senha não é armazenada no estado por segurança
             storeName,
             role: 'user'
           };
           setCurrentUser(user);
           setIsAuthenticated(true);
         } else {
-          // Se o Firebase deslogou, SÓ resetamos se não houver um usuário LOCAL ativo.
-          // Isso impede que problemas de rede ou delays do Firebase expulsem um usuário local.
-          if (!currentUser || (currentUser && users.some(u => u.id === currentUser.id && u.email === currentUser.email))) {
-             // É um usuário local, mantenha logado
-          } else {
+          // Logout ou Sessão Expirada
+          // Verificamos se há um usuário LOCAL antes de limpar tudo
+          const isLocalSession = currentUser && users.some(u => u.id === currentUser.id && u.email === currentUser.email);
+          
+          if (!isLocalSession) {
              setCurrentUser(null);
              setIsAuthenticated(false);
              setIsDataLoaded(false);
@@ -151,19 +158,26 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
       });
       return () => unsubscribeAuth();
     }
-  }, []); // Dependência vazia para rodar apenas no mount
+  }, []); 
 
-  // --- 3. SINCRONIZAÇÃO DE DADOS EM TEMPO REAL ---
+  // --- 3. SINCRONIZAÇÃO DE DADOS EM TEMPO REAL (SYNC) ---
   useEffect(() => {
     let unsubscribeSnapshot: () => void;
 
-    // Só sincroniza se estiver autenticado no Firebase E configurado
+    // A mágica do multi-dispositivo acontece aqui:
+    // O onSnapshot escuta mudanças no banco de dados.
+    // Se você alterar algo no celular, o PC recebe a atualização em milissegundos.
     if (isAuthenticated && currentUser && isFirebaseConfigured && db && auth?.currentUser?.uid === currentUser.id) {
       const userStoreRef = doc(db, 'stores', currentUser.id);
       
+      console.log("[AutoCars] 📡 Conectando ao banco de dados em tempo real...");
+      
       unsubscribeSnapshot = onSnapshot(userStoreRef, (docSnap) => {
         if (docSnap.exists()) {
+          console.log("[AutoCars] 🔄 Dados recebidos da nuvem.");
           const data = docSnap.data();
+          
+          // Atualização de estado segura
           setVehicles(data.vehicles || []);
           setCustomers(data.customers || []);
           setSales(data.sales || []);
@@ -171,22 +185,34 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
           
           if (data.storeProfile) {
             setStoreProfile(data.storeProfile);
-            setCurrentUser(prev => prev ? { ...prev, storeName: data.storeProfile.name } : null);
+            // Atualiza nome da loja se mudou em outro dispositivo
+            if (data.storeProfile.name !== currentUser.storeName) {
+                setCurrentUser(prev => prev ? { ...prev, storeName: data.storeProfile.name } : null);
+            }
           }
           setIsDataLoaded(true);
+        } else {
+          // Documento não existe (novo usuário ou erro de criação)
+          console.log("[AutoCars] Documento da loja não encontrado. Inicializando novo perfil...");
+          setIsDataLoaded(true); // Libera o app mesmo vazio
         }
-      }, (error) => console.error("Sync error:", error));
+      }, (error) => {
+          console.error("[AutoCars] ❌ Erro de sincronização:", error);
+          // Em caso de erro de permissão ou rede, mantemos os dados que já temos
+          setIsDataLoaded(true); 
+      });
     }
 
     return () => { if (unsubscribeSnapshot) unsubscribeSnapshot(); };
   }, [isAuthenticated, currentUser?.id]); 
 
-  // --- 4. ACTIONS ---
+  // --- 4. ACTIONS (Cloud First) ---
   
   const saveToCloud = async (newData: any) => {
     if (isFirebaseConfigured && db && currentUser) {
       const userStoreRef = doc(db, 'stores', currentUser.id);
-      // Use setDoc with merge:true to ensure it works even if doc doesn't exist
+      // setDoc com merge:true garante que se criarmos dados em um novo dispositivo, 
+      // eles se juntam ao registro existente sem apagar nada.
       await setDoc(userStoreRef, { ...newData, lastUpdated: new Date().toISOString() }, { merge: true });
     }
   };
@@ -243,29 +269,38 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     else setStoreProfile(p);
   };
   
-  // --- AUTH ---
+  // --- AUTH FLOWS ---
 
   const login = async (email: string, password: string): Promise<boolean> => {
     let firebaseError = null;
     const cleanEmail = email.trim().toLowerCase();
     const cleanPassword = password.trim();
 
-    // 1. Tenta Firebase (se configurado)
+    // 1. Tenta Firebase (Nuvem) - Prioridade Máxima
     if (isFirebaseConfigured && auth) {
       try {
         await signInWithEmailAndPassword(auth, cleanEmail, cleanPassword);
-        return true;
+        return true; // Sucesso, o onAuthStateChanged lidará com o resto
       } catch (err: any) {
-        console.warn("Login Firebase falhou, tentando local...", err.code);
+        console.warn("Login Firebase falhou:", err.code);
         firebaseError = err;
-        // NÃO LANÇA ERRO AINDA! Tenta o login local abaixo.
+        
+        // Se o erro for de credencial, não tentamos local, pois o usuário quer acessar a conta da nuvem
+        if (err.code === 'auth/invalid-credential' || err.code === 'auth/user-not-found' || err.code === 'auth/wrong-password') {
+             // Verificamos se EXISTE uma conta local antes de falhar totalmente
+             // Isso serve para usuários que ainda não migraram
+             const localUser = users.find(u => u.email.toLowerCase() === cleanEmail);
+             if (!localUser) {
+                 throw err; // Se não tem local, é erro de senha da nuvem mesmo
+             }
+        }
       }
     }
 
-    // 2. Fallback: Tenta Login Local (para usuários antigos ou offline)
+    // 2. Fallback: Tenta Login Local (apenas se falhar conexão ou for usuário legado)
     const localUser = users.find(u => u.email.toLowerCase() === cleanEmail && u.password === cleanPassword);
     if (localUser) {
-      console.log("Login local bem sucedido.");
+      console.log("Login local bem sucedido (Modo Offline).");
       setCurrentUser(localUser);
       setIsAuthenticated(true);
       const storageKey = `${DATA_STORAGE_PREFIX}${localUser.id}`;
@@ -282,7 +317,7 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
       return true;
     }
 
-    // 3. Se ambos falharem, lança o erro original do Firebase ou um genérico
+    // 3. Se chegou aqui, falhou nuvem e local
     if (firebaseError) {
       throw firebaseError;
     }
@@ -294,7 +329,7 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     const cleanEmail = userData.email.trim().toLowerCase();
     const cleanPassword = userData.password.trim();
 
-    // Validação da Chave de Acesso
+    // Validação da Chave de Acesso (Requisitada pelo usuário)
     if (accessCode !== 'Auto12@') {
       const error: any = new Error("Código de acesso incorreto.");
       error.code = 'auth/invalid-access-code';
@@ -315,8 +350,7 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
           targetMargin: 20 
         };
 
-        // Criar perfil da loja
-        // Verificamos se há dados locais para migrar
+        // Prepara dados iniciais
         let initialData = {
            vehicles: [], customers: [], sales: [], expenses: [],
            storeProfile: initialProfile,
@@ -324,28 +358,31 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
            role: 'user'
         };
 
-        // Tenta migrar dados locais se for o mesmo email
+        // Se o usuário já existia localmente, migramos os dados para a nuvem agora
         const localUser = users.find(u => u.email.toLowerCase() === cleanEmail);
         if (localUser) {
            const storageKey = `${DATA_STORAGE_PREFIX}${localUser.id}`;
            const savedData = localStorage.getItem(storageKey);
            if (savedData) {
+               console.log("Migrando dados locais para a nuvem durante o registro...");
                const parsed = JSON.parse(savedData);
                initialData = { ...initialData, ...parsed, storeProfile: initialProfile };
            }
         }
 
+        // Cria o documento no Firestore
         await setDoc(doc(db, 'stores', firebaseUser.uid), initialData, { merge: true });
         
         return true;
       } catch (err: any) {
+        // Se o email já existe, o Login.tsx lida com isso tentando logar
         if (err.code !== 'auth/email-already-in-use') {
             console.error("Erro registro Firebase:", err);
         }
         throw err;
       }
     } else {
-      // Local Registration
+      // Registro Local (apenas se a nuvem estiver inoperante)
       const newUser: User = { 
         ...userData, 
         email: cleanEmail,
@@ -354,7 +391,6 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
         role: 'user' 
       };
       
-      // Validação local com formato de erro compatível com Firebase para o UI
       if (users.find(u => u.email.toLowerCase() === cleanEmail)) {
         const error: any = new Error("Email já cadastrado localmente.");
         error.code = 'auth/email-already-in-use';
@@ -441,7 +477,7 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
   return (
     <StoreContext.Provider value={{ 
       vehicles, customers, sales, expenses, storeProfile, isAuthenticated, currentUser,
-      isCloudSyncing: isFirebaseConfigured && !!db && !!auth?.currentUser, // Only show cloud syncing if auth matches
+      isCloudSyncing: isFirebaseConfigured && !!db && !!auth?.currentUser, 
       addVehicle, updateVehicle, removeVehicle, addCustomer, removeCustomer, addSale, addExpense, removeExpense, updateStoreProfile,
       login, register, resetPassword, logout, exportData, getDataForExport, importData
     }}>
