@@ -1,6 +1,6 @@
 
 import { initializeApp, FirebaseApp } from 'firebase/app';
-import { initializeFirestore, persistentLocalCache, persistentMultipleTabManager, Firestore } from 'firebase/firestore';
+import { initializeFirestore, persistentLocalCache, persistentMultipleTabManager, Firestore, getFirestore } from 'firebase/firestore';
 import { getAuth, Auth } from 'firebase/auth';
 import { getAnalytics, Analytics } from "firebase/analytics";
 
@@ -101,8 +101,7 @@ if (config.apiKey && config.projectId) {
         });
     } catch (firestoreErr) {
         console.warn("Falha ao inicializar persistência (pode já estar inicializado):", firestoreErr);
-        // Fallback se initializeFirestore falhar (raro)
-        const { getFirestore } = await import('firebase/firestore');
+        // Fallback: Usa getFirestore padrão de forma síncrona
         db = getFirestore(app);
     }
 
