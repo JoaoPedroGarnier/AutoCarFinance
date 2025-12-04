@@ -1,4 +1,3 @@
-
 import { defineConfig, loadEnv } from 'vite';
 import react from '@vitejs/plugin-react';
 
@@ -7,13 +6,15 @@ export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, (process as any).cwd(), '');
 
   return {
-    // Para Vercel, o ideal é usar a base padrão '/' (raiz do domínio).
-    // O './' era necessário apenas para subpastas do GitHub Pages.
+    // Para Vercel, usamos '/' (raiz)
     base: '/',
     plugins: [react()],
+    build: {
+      outDir: 'dist',
+      sourcemap: false,
+    },
     define: {
-      // Mantemos apenas o API_KEY do Gemini mapeado para process.env para compatibilidade
-      // O Firebase agora usa import.meta.env nativo
+      // Garante que o API KEY esteja disponível se definido no Vercel Environment Variables
       'process.env.API_KEY': JSON.stringify(env.API_KEY || env.VITE_API_KEY),
     },
   };
