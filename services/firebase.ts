@@ -1,6 +1,6 @@
 
 import { initializeApp } from 'firebase/app';
-import { getFirestore } from 'firebase/firestore';
+import { initializeFirestore, persistentLocalCache, persistentMultipleTabManager } from 'firebase/firestore';
 import { getAuth } from 'firebase/auth';
 import { getAnalytics } from "firebase/analytics";
 
@@ -91,7 +91,20 @@ if (config.apiKey && config.projectId) {
   try {
     console.log("[AutoCars Firebase] ✅ Configuração encontrada. Conectando...");
     app = initializeApp(config as any);
-    db = getFirestore(app);
+    
+    // Inicialização do Firestore com Cache Persistente (Offline support)
+    // Isso evita o erro "Failed to get document because the client is offline"
+    try {
+        db = initializeFirestore(app, {
+          localCache: persistentLocalCache({ tabManager: persistentMultipleTabManager() })
+        });
+    } catch (firestoreErr) {
+        console.warn("Falha ao inicializar persistência (pode já estar inicializado):", firestoreErr);
+        // Fallback se initializeFirestore falhar (raro)
+        const { getFirestore } = await import('firebase/firestore');
+        db = getFirestore(app);
+    }
+
     auth = getAuth(app);
     
     // Inicialização do Analytics (opcional, pode falhar em alguns ambientes locais)
