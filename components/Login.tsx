@@ -28,21 +28,19 @@ const Login: React.FC = () => {
             return;
         }
         
-        // Validação do Código de Acesso
-        if (accessCode !== 'Auto12@') {
-            setError('Código de acesso incorreto. Solicite ao administrador.');
-            setIsLoading(false);
-            return;
-        }
-
-        await register({ email, password, storeName });
+        // A validação do código agora é feita dentro do register no store
+        await register({ email, password, storeName }, accessCode);
       } else {
         const success = await login(email, password);
         if (!success) setError('Credenciais inválidas ou usuário não encontrado.');
       }
     } catch (err: any) {
       console.error(err);
-      const msg = err.code === 'auth/invalid-credential' ? 'Email ou senha incorretos.' : 'Ocorreu um erro. Tente novamente.';
+      // Tratamento de mensagens de erro amigáveis
+      let msg = 'Ocorreu um erro. Tente novamente.';
+      if (err.code === 'auth/invalid-credential') msg = 'Email ou senha incorretos.';
+      if (err.message) msg = err.message; // Captura erros jogados pelo register (Ex: Licença inválida)
+      
       setError(msg);
     } finally {
       setIsLoading(false);
@@ -83,14 +81,14 @@ const Login: React.FC = () => {
                     </div>
 
                     <div>
-                        <label className="block text-sm font-semibold text-slate-700 mb-1">Código de Acesso</label>
+                        <label className="block text-sm font-semibold text-slate-700 mb-1">Código de Acesso / Licença</label>
                         <div className="relative">
                             <Key className="absolute left-3 top-3 text-slate-400" size={18} />
                             <input 
                                 required 
                                 type="text" 
                                 className="w-full pl-10 p-2.5 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
-                                placeholder="Código de Convite"
+                                placeholder="Chave de Licença ou Convite"
                                 value={accessCode}
                                 onChange={e => setAccessCode(e.target.value)}
                             />
