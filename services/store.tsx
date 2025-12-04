@@ -43,7 +43,7 @@ interface StoreContextType {
   removeExpense: (id: string) => Promise<void>;
   updateStoreProfile: (p: StoreProfile) => Promise<void>;
   login: (email: string, password: string) => Promise<boolean>;
-  register: (user: Omit<User, 'id'>) => Promise<boolean>;
+  register: (user: Omit<User, 'id'>, accessCode: string) => Promise<boolean>;
   resetPassword: (email: string) => Promise<void>;
   logout: () => void;
   exportData: () => void;
@@ -290,9 +290,16 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     return false;
   };
 
-  const register = async (userData: Omit<User, 'id'>): Promise<boolean> => {
+  const register = async (userData: Omit<User, 'id'>, accessCode: string): Promise<boolean> => {
     const cleanEmail = userData.email.trim().toLowerCase();
     const cleanPassword = userData.password.trim();
+
+    // Validação da Chave de Acesso
+    if (accessCode !== 'Auto12@') {
+      const error: any = new Error("Código de acesso incorreto.");
+      error.code = 'auth/invalid-access-code';
+      throw error;
+    }
 
     // --- CRIAÇÃO DO USUÁRIO ---
     
@@ -332,7 +339,9 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
         
         return true;
       } catch (err: any) {
-        console.error("Erro registro Firebase:", err);
+        if (err.code !== 'auth/email-already-in-use') {
+            console.error("Erro registro Firebase:", err);
+        }
         throw err;
       }
     } else {

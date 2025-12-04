@@ -1,23 +1,49 @@
 
 import React, { useState } from 'react';
 import { useStore } from '../services/store';
-import { Mail, Lock, ArrowRight, Store, AlertTriangle, Cloud, Info, LogIn } from 'lucide-react';
+import { Mail, Lock, ArrowRight, Store, AlertTriangle, Cloud, Info, LogIn, Key } from 'lucide-react';
 
 const Login: React.FC = () => {
-  const { login, register, isCloudSyncing } = useStore();
+  const { login, register, isCloudSyncing, resetPassword } = useStore();
   const [isRegistering, setIsRegistering] = useState(false);
+  const [showForgotPassword, setShowForgotPassword] = useState(false);
   
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [storeName, setStoreName] = useState('');
+  const [accessCode, setAccessCode] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
+  const [successMessage, setSuccessMessage] = useState('');
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
+    setSuccessMessage('');
     
+    // Fluxo de Esqueci Minha Senha
+    if (showForgotPassword) {
+        if (!email) {
+            setError('Digite seu email para recuperar a senha.');
+            return;
+        }
+        setIsLoading(true);
+        try {
+            await resetPassword(email);
+            setSuccessMessage('Email de redefinição enviado! Verifique sua caixa de entrada.');
+            setTimeout(() => {
+                setShowForgotPassword(false);
+                setSuccessMessage('');
+            }, 5000);
+        } catch (err: any) {
+            setError(err.message || 'Erro ao enviar email.');
+        } finally {
+            setIsLoading(false);
+        }
+        return;
+    }
+
     // Validação básica de senha no front-end para evitar rejeição da API
     if (password.length < 6) {
         setError('A senha deve ter no mínimo 6 caracteres.');
@@ -34,7 +60,7 @@ const Login: React.FC = () => {
             return;
         }
         
-        await register({ email, password, storeName });
+        await register({ email, password, storeName }, accessCode);
       } else {
         const success = await login(email, password);
         if (!success) setError('Credenciais inválidas ou usuário não encontrado.');
@@ -52,8 +78,21 @@ const Login: React.FC = () => {
         msg = 'A senha deve ter pelo menos 6 caracteres.';
       } else if (err.code === 'auth/configuration-not-found' || err.code === 'auth/operation-not-allowed' || err.code === 'auth/admin-restricted-operation') {
         msg = '⚠️ Configuração Pendente: O método de login "Email/Senha" não está ativado no Firebase Console. Acesse o console do Firebase > Authentication > Sign-in method e ative-o.';
+      } else if (err.code === 'auth/invalid-access-code') {
+        msg = 'Código de acesso inválido. Contate o administrador.';
       } else if (err.message) {
         msg = err.message;
+      }
+      
+      // Auto-Login Logic for duplicate email on registration
+      if (msg === 'EMAIL_DUPLICADO' && isRegistering) {
+          try {
+              // Tenta logar silenciosamente
+              const loginSuccess = await login(email, password);
+              if (loginSuccess) return; // Sucesso, o componente vai desmontar
+          } catch {
+              // Se falhar o login automático, mantém o erro de duplicado para o usuário decidir
+          }
       }
       
       setError(msg);
@@ -76,6 +115,12 @@ const Login: React.FC = () => {
         </div>
         
         <form onSubmit={handleSubmit} className="p-6 space-y-5">
+            {successMessage && (
+                <div className="p-3 rounded-lg text-sm bg-emerald-50 text-emerald-700 border border-emerald-200 animate-in fade-in">
+                    {successMessage}
+                </div>
+            )}
+            
             {error && (
                 <div className={`p-3 rounded-lg text-sm flex flex-col gap-2 border animate-in fade-in slide-in-from-top-1 ${error.includes('Configuração Pendente') ? 'bg-amber-50 text-amber-800 border-amber-200' : 'bg-red-50 text-red-600 border-red-100'}`}>
                     {error === 'EMAIL_DUPLICADO' ? (
@@ -92,6 +137,20 @@ const Login: React.FC = () => {
                                 <LogIn size={14}/> Fazer Login Agora
                              </button>
                         </div>
+                    ) : error === 'Email ou senha incorretos.' && !isRegistering ? (
+                         <div className="flex flex-col gap-2">
+                            <div className="flex items-start gap-2">
+                                <AlertTriangle size={16} className="shrink-0 mt-0.5" />
+                                <span>{error}</span>
+                            </div>
+                            <button 
+                                type="button"
+                                onClick={() => { setShowForgotPassword(true); setError(''); }}
+                                className="text-xs text-red-700 font-bold hover:underline self-end"
+                            >
+                                Esqueci minha senha
+                            </button>
+                        </div>
                     ) : (
                         <div className="flex items-start gap-2">
                             <AlertTriangle size={16} className="shrink-0 mt-0.5" />
@@ -101,7 +160,25 @@ const Login: React.FC = () => {
                 </div>
             )}
 
-            {isRegistering && (
+            {!showForgotPassword && isRegistering && (
+                <div>
+                    <label className="block text-sm font-semibold text-slate-700 mb-1">Código de Acesso</label>
+                    <div className="relative">
+                        <Key className="absolute left-3 top-3 text-slate-400" size={18} />
+                        <input 
+                            required 
+                            type="text" 
+                            className="w-full pl-10 p-2.5 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
+                            placeholder="Código do Vendedor"
+                            value={accessCode}
+                            onChange={e => handleInputChange(setAccessCode, e.target.value)}
+                        />
+                    </div>
+                    <p className="text-xs text-slate-400 mt-1 ml-1">Código necessário apenas para o cadastro.</p>
+                </div>
+            )}
+
+            {!showForgotPassword && isRegistering && (
                 <div>
                     <label className="block text-sm font-semibold text-slate-700 mb-1">Nome da Loja</label>
                     <div className="relative">
@@ -133,23 +210,25 @@ const Login: React.FC = () => {
                 </div>
             </div>
 
-            <div>
-                <label className="block text-sm font-semibold text-slate-700 mb-1">Senha</label>
-                <div className="relative">
-                    <Lock className="absolute left-3 top-3 text-slate-400" size={18} />
-                    <input 
-                        required 
-                        type="password" 
-                        minLength={6}
-                        className="w-full pl-10 p-2.5 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
-                        placeholder="Mínimo 6 caracteres"
-                        value={password}
-                        onChange={e => handleInputChange(setPassword, e.target.value)}
-                    />
+            {!showForgotPassword && (
+                <div>
+                    <label className="block text-sm font-semibold text-slate-700 mb-1">Senha</label>
+                    <div className="relative">
+                        <Lock className="absolute left-3 top-3 text-slate-400" size={18} />
+                        <input 
+                            required 
+                            type="password" 
+                            minLength={6}
+                            className="w-full pl-10 p-2.5 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
+                            placeholder="Mínimo 6 caracteres"
+                            value={password}
+                            onChange={e => handleInputChange(setPassword, e.target.value)}
+                        />
+                    </div>
                 </div>
-            </div>
+            )}
 
-            {isRegistering && (
+            {!showForgotPassword && isRegistering && (
                 <div>
                     <label className="block text-sm font-semibold text-slate-700 mb-1">Confirmar Senha</label>
                     <div className="relative">
@@ -171,19 +250,29 @@ const Login: React.FC = () => {
                 disabled={isLoading} 
                 className="w-full bg-blue-600 hover:bg-blue-700 text-white p-3 rounded-lg font-bold flex items-center justify-center gap-2 transition-colors shadow-sm disabled:opacity-70 disabled:cursor-not-allowed"
             >
-                {isLoading ? 'Processando...' : (isRegistering ? 'Criar Conta' : 'Entrar')}
-                {!isLoading && <ArrowRight size={20} />}
+                {isLoading ? 'Processando...' : (showForgotPassword ? 'Enviar Email de Recuperação' : (isRegistering ? 'Criar Conta' : 'Entrar'))}
+                {!isLoading && !showForgotPassword && <ArrowRight size={20} />}
             </button>
         </form>
 
         <div className="p-4 bg-slate-50 border-t border-slate-100 text-center">
-            <button 
-                type="button" 
-                onClick={() => { setError(''); setIsRegistering(!isRegistering); }}
-                className="text-sm text-blue-600 hover:text-blue-800 hover:underline font-medium transition-colors"
-            >
-                {isRegistering ? 'Já possui conta? Fazer Login' : 'Não tem conta? Criar agora'}
-            </button>
+            {showForgotPassword ? (
+                <button 
+                    type="button"
+                    onClick={() => { setShowForgotPassword(false); setError(''); }}
+                    className="text-sm text-slate-600 hover:text-slate-800 hover:underline font-medium"
+                >
+                    Voltar para Login
+                </button>
+            ) : (
+                <button 
+                    type="button" 
+                    onClick={() => { setError(''); setIsRegistering(!isRegistering); }}
+                    className="text-sm text-blue-600 hover:text-blue-800 hover:underline font-medium transition-colors"
+                >
+                    {isRegistering ? 'Já possui conta? Fazer Login' : 'Não tem conta? Criar agora'}
+                </button>
+            )}
         </div>
 
         <div className="p-2 bg-slate-100 border-t border-slate-200 text-center">
