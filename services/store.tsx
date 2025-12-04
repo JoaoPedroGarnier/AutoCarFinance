@@ -47,6 +47,7 @@ interface StoreContextType {
   register: (user: Omit<User, 'id'>) => Promise<boolean>;
   logout: () => void;
   exportData: () => void;
+  getDataForExport: () => string; // Nova função
   importData: (jsonData: string) => boolean;
 }
 
@@ -376,13 +377,19 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
   };
 
   // --- IMPORT/EXPORT ---
-  const exportData = () => {
-    if (!currentUser) return;
+  const getDataForExport = (): string => {
+    if (!currentUser) return '{}';
     const data = {
       vehicles, customers, sales, expenses, storeProfile,
-      user: { email: currentUser.email, storeName: currentUser.storeName }
+      user: { email: currentUser.email, storeName: currentUser.storeName },
+      exportDate: new Date().toISOString()
     };
-    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+    return JSON.stringify(data, null, 2);
+  };
+
+  const exportData = () => {
+    const jsonString = getDataForExport();
+    const blob = new Blob([jsonString], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
@@ -421,7 +428,7 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
       vehicles, customers, sales, expenses, storeProfile, isAuthenticated, currentUser,
       isCloudSyncing: isFirebaseConfigured && !!db,
       addVehicle, updateVehicle, removeVehicle, addCustomer, removeCustomer, addSale, addExpense, removeExpense, updateStoreProfile,
-      login, register, logout, exportData, importData
+      login, register, logout, exportData, getDataForExport, importData
     }}>
       {children}
     </StoreContext.Provider>
