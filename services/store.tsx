@@ -15,7 +15,6 @@ import {
 
 // --- CONSTANTES ---
 const USERS_STORAGE_KEY = 'autocars_users';
-const LICENSES_STORAGE_KEY = 'autocars_licenses';
 const DATA_STORAGE_PREFIX = 'autocars_data_';
 
 const EMPTY_STORE_PROFILE: StoreProfile = {
@@ -44,7 +43,7 @@ interface StoreContextType {
   removeExpense: (id: string) => Promise<void>;
   updateStoreProfile: (p: StoreProfile) => Promise<void>;
   login: (email: string, password: string) => Promise<boolean>;
-  register: (user: Omit<User, 'id'>, accessCode: string) => Promise<boolean>;
+  register: (user: Omit<User, 'id'>) => Promise<boolean>;
   logout: () => void;
   exportData: () => void;
   getDataForExport: () => string;
@@ -107,8 +106,7 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
 
       const unsubscribeAuth = onAuthStateChanged(auth, async (firebaseUser: FirebaseUser | null) => {
         if (firebaseUser) {
-          // Busca role e storeName do Firestore
-          let role: 'admin' | 'user' = 'user';
+          // Busca storeName do Firestore
           let storeName = '';
           
           if (db) {
@@ -116,7 +114,6 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
              if (userDoc.exists()) {
                  const d = userDoc.data();
                  storeName = d.storeProfile?.name || '';
-                 role = d.role || 'user';
              }
           }
 
@@ -125,7 +122,7 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
             email: firebaseUser.email || '',
             password: '', 
             storeName,
-            role
+            role: 'user'
           };
           setCurrentUser(user);
           setIsAuthenticated(true);
@@ -161,7 +158,7 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
           
           if (data.storeProfile) {
             setStoreProfile(data.storeProfile);
-            setCurrentUser(prev => prev ? { ...prev, storeName: data.storeProfile.name, role: data.role || prev.role } : null);
+            setCurrentUser(prev => prev ? { ...prev, storeName: data.storeProfile.name } : null);
           }
           setIsDataLoaded(true);
         }
@@ -265,45 +262,7 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     return false;
   };
 
-  const register = async (userData: Omit<User, 'id'>, accessCode: string): Promise<boolean> => {
-    let role: 'admin' | 'user' = 'user';
-    let isLicenseValid = false;
-
-    // 1. Verificar Chave Mestra
-    if (accessCode === 'SAAS-MASTER-ADMIN') {
-        role = 'admin';
-        isLicenseValid = true;
-    } 
-    // 2. Verificar Legado
-    else if (accessCode === 'Auto12@') {
-        role = 'user';
-        isLicenseValid = true;
-    }
-    // 3. Verificar Licença Dinâmica (Firestore)
-    else if (isFirebaseConfigured && db) {
-        try {
-            const licenseRef = doc(db, 'licenses', accessCode);
-            const licenseSnap = await getDoc(licenseRef);
-            
-            if (licenseSnap.exists() && licenseSnap.data().status === 'available') {
-                isLicenseValid = true;
-                // Marcar como usada será feito após criar o user com sucesso para evitar inconsistência
-            }
-        } catch (e) {
-            console.error("Erro validação licença:", e);
-        }
-    }
-    // 4. Verificar Licença Local (LocalStorage)
-    else {
-         const localLicenses = JSON.parse(localStorage.getItem(LICENSES_STORAGE_KEY) || '[]');
-         const lic = localLicenses.find((l: any) => l.key === accessCode && l.status === 'available');
-         if (lic) isLicenseValid = true;
-    }
-
-    if (!isLicenseValid) {
-        throw new Error("Código de acesso ou licença inválida.");
-    }
-
+  const register = async (userData: Omit<User, 'id'>): Promise<boolean> => {
     // --- CRIAÇÃO DO USUÁRIO ---
     
     if (isFirebaseConfigured && auth && db) {
@@ -323,18 +282,8 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
           vehicles: [], customers: [], sales: [], expenses: [],
           storeProfile: initialProfile,
           createdAt: new Date().toISOString(),
-          role: role
+          role: 'user'
         });
-
-        // Se foi usada uma licença do banco, marcar como usada
-        if (role === 'user' && accessCode !== 'Auto12@') {
-             await updateDoc(doc(db, 'licenses', accessCode), {
-                 status: 'used',
-                 usedBy: firebaseUser.uid,
-                 usedAt: new Date().toISOString(),
-                 storeName: userData.storeName
-             });
-        }
         
         return true;
       } catch (err: any) {
@@ -343,22 +292,13 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
       }
     } else {
       // Local Registration
-      const newUser: User = { ...userData, id: Date.now().toString(), role };
+      const newUser: User = { ...userData, id: Date.now().toString(), role: 'user' };
       if (users.find(u => u.email === userData.email)) throw new Error("Email já cadastrado.");
       
       const updatedUsers = [...users, newUser];
       setUsers(updatedUsers);
       localStorage.setItem(USERS_STORAGE_KEY, JSON.stringify(updatedUsers));
       
-      // Update local license if used
-      if (role === 'user' && accessCode !== 'Auto12@') {
-          const localLicenses = JSON.parse(localStorage.getItem(LICENSES_STORAGE_KEY) || '[]');
-          const updatedLicenses = localLicenses.map((l: any) => 
-              l.key === accessCode ? { ...l, status: 'used', usedBy: newUser.id, usedAt: new Date().toISOString() } : l
-          );
-          localStorage.setItem(LICENSES_STORAGE_KEY, JSON.stringify(updatedLicenses));
-      }
-
       initializeEmptyState(newUser.storeName, newUser.email);
       setCurrentUser(newUser);
       setIsAuthenticated(true);

@@ -83,4 +83,4 @@ export interface License {
   usedAt?: string;
 }
 
-export type ViewState = 'dashboard' | 'inventory' | 'customers' | 'sales' | 'finance' | 'settings' | 'saas-admin';
+export type ViewState = 'dashboard' | 'inventory' | 'customers' | 'sales' | 'finance' | 'settings';

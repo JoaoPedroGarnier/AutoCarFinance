@@ -2,6 +2,7 @@
 import { initializeApp } from 'firebase/app';
 import { getFirestore } from 'firebase/firestore';
 import { getAuth } from 'firebase/auth';
+import { getAnalytics } from "firebase/analytics";
 
 const LOCAL_STORAGE_KEY = 'autocars_firebase_config';
 
@@ -40,39 +41,60 @@ const getStoredConfig = () => {
 
 const storedConfig = getStoredConfig();
 
-const config = {
-  apiKey: getEnv('VITE_FIREBASE_API_KEY') || storedConfig?.apiKey,
-  authDomain: getEnv('VITE_FIREBASE_AUTH_DOMAIN') || storedConfig?.authDomain,
-  projectId: getEnv('VITE_FIREBASE_PROJECT_ID') || storedConfig?.projectId,
-  storageBucket: getEnv('VITE_FIREBASE_STORAGE_BUCKET') || storedConfig?.storageBucket,
-  messagingSenderId: getEnv('VITE_FIREBASE_MESSAGING_SENDER_ID') || storedConfig?.messagingSenderId,
-  appId: getEnv('VITE_FIREBASE_APP_ID') || storedConfig?.appId
+// Configuração Fallback fornecida pelo usuário
+const fallbackConfig = {
+  apiKey: "AIzaSyDd5JG13lpRhWL9a1dbtL_9nYPO74CS3xk",
+  authDomain: "autocarfinance-51dda.firebaseapp.com",
+  projectId: "autocarfinance-51dda",
+  storageBucket: "autocarfinance-51dda.firebasestorage.app",
+  messagingSenderId: "154076899806",
+  appId: "1:154076899806:web:82f5344ae5be297c59d54f",
+  measurementId: "G-VTB1W9DX98"
 };
 
-console.log("[AutoCars Debug] Verificando chaves de ambiente...");
+const config = {
+  apiKey: getEnv('VITE_FIREBASE_API_KEY') || storedConfig?.apiKey || fallbackConfig.apiKey,
+  authDomain: getEnv('VITE_FIREBASE_AUTH_DOMAIN') || storedConfig?.authDomain || fallbackConfig.authDomain,
+  projectId: getEnv('VITE_FIREBASE_PROJECT_ID') || storedConfig?.projectId || fallbackConfig.projectId,
+  storageBucket: getEnv('VITE_FIREBASE_STORAGE_BUCKET') || storedConfig?.storageBucket || fallbackConfig.storageBucket,
+  messagingSenderId: getEnv('VITE_FIREBASE_MESSAGING_SENDER_ID') || storedConfig?.messagingSenderId || fallbackConfig.messagingSenderId,
+  appId: getEnv('VITE_FIREBASE_APP_ID') || storedConfig?.appId || fallbackConfig.appId,
+  measurementId: getEnv('VITE_FIREBASE_MEASUREMENT_ID') || storedConfig?.measurementId || fallbackConfig.measurementId
+};
+
+console.log("[AutoCars Debug] Inicializando Firebase...");
 
 // Verificação de chaves ausentes
 const missingKeys: string[] = [];
-if (!config.apiKey) missingKeys.push("VITE_FIREBASE_API_KEY");
-if (!config.authDomain) missingKeys.push("VITE_FIREBASE_AUTH_DOMAIN");
-if (!config.projectId) missingKeys.push("VITE_FIREBASE_PROJECT_ID");
+if (!config.apiKey) missingKeys.push("API_KEY");
+if (!config.projectId) missingKeys.push("PROJECT_ID");
 
 let app = null;
 let db = null;
 let auth = null;
+let analytics = null;
 
 if (missingKeys.length > 0) {
-  console.warn(`[AutoCars Firebase] ⚠️ MODO OFFLINE ATIVADO.`);
-  console.warn(`[AutoCars Firebase] Chaves não detectadas via ENV. Verificando configuração manual...`);
+  console.warn(`[AutoCars Firebase] ⚠️ MODO OFFLINE ATIVADO. Chaves ausentes: ${missingKeys.join(', ')}`);
 } 
 
-// Tenta inicializar se tivermos configuração válida (seja via ENV ou LocalStorage)
+// Tenta inicializar se tivermos configuração válida
 if (config.apiKey && config.projectId) {
   try {
-    console.log("[AutoCars Firebase] ✅ Configuração encontrada. Inicializando Firebase...");
+    console.log("[AutoCars Firebase] ✅ Configuração encontrada. Conectando...");
     app = initializeApp(config as any);
     db = getFirestore(app);
     auth = getAuth(app);
+    
+    // Inicialização do Analytics (opcional, pode falhar em alguns ambientes locais)
+    try {
+      if (typeof window !== 'undefined') {
+        analytics = getAnalytics(app);
+      }
+    } catch (analyticsErr) {
+      console.warn("Analytics não pôde ser inicializado (possivelmente bloqueador de anúncios ou ambiente local):", analyticsErr);
+    }
+    
     console.log("[AutoCars Firebase] Conectado com sucesso.");
   } catch (error) {
     console.error("[AutoCars Firebase] Erro fatal ao inicializar:", error);
@@ -95,5 +117,5 @@ export const resetFirebaseConfig = () => {
     window.location.reload();
 };
 
-export { db, auth };
+export { db, auth, analytics };
 export const isFirebaseConfigured = !!app;

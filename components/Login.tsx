@@ -1,7 +1,7 @@
 
 import React, { useState } from 'react';
 import { useStore } from '../services/store';
-import { Mail, Lock, ArrowRight, Store, AlertTriangle, Cloud, Info, Key } from 'lucide-react';
+import { Mail, Lock, ArrowRight, Store, AlertTriangle, Cloud, Info } from 'lucide-react';
 
 const Login: React.FC = () => {
   const { login, register, isCloudSyncing } = useStore();
@@ -11,7 +11,6 @@ const Login: React.FC = () => {
   const [password, setPassword] = useState('');
   const [storeName, setStoreName] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
-  const [accessCode, setAccessCode] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
 
@@ -28,8 +27,7 @@ const Login: React.FC = () => {
             return;
         }
         
-        // A validação do código agora é feita dentro do register no store
-        await register({ email, password, storeName }, accessCode);
+        await register({ email, password, storeName });
       } else {
         const success = await login(email, password);
         if (!success) setError('Credenciais inválidas ou usuário não encontrado.');
@@ -39,7 +37,7 @@ const Login: React.FC = () => {
       // Tratamento de mensagens de erro amigáveis
       let msg = 'Ocorreu um erro. Tente novamente.';
       if (err.code === 'auth/invalid-credential') msg = 'Email ou senha incorretos.';
-      if (err.message) msg = err.message; // Captura erros jogados pelo register (Ex: Licença inválida)
+      if (err.message) msg = err.message; // Captura erros jogados pelo register
       
       setError(msg);
     } finally {
@@ -64,38 +62,20 @@ const Login: React.FC = () => {
             )}
 
             {isRegistering && (
-                <>
-                    <div>
-                        <label className="block text-sm font-semibold text-slate-700 mb-1">Nome da Loja</label>
-                        <div className="relative">
-                            <Store className="absolute left-3 top-3 text-slate-400" size={18} />
-                            <input 
-                                required 
-                                type="text" 
-                                className="w-full pl-10 p-2.5 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
-                                placeholder="Nome da Loja"
-                                value={storeName}
-                                onChange={e => setStoreName(e.target.value)}
-                            />
-                        </div>
+                <div>
+                    <label className="block text-sm font-semibold text-slate-700 mb-1">Nome da Loja</label>
+                    <div className="relative">
+                        <Store className="absolute left-3 top-3 text-slate-400" size={18} />
+                        <input 
+                            required 
+                            type="text" 
+                            className="w-full pl-10 p-2.5 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
+                            placeholder="Nome da Loja"
+                            value={storeName}
+                            onChange={e => setStoreName(e.target.value)}
+                        />
                     </div>
-
-                    <div>
-                        <label className="block text-sm font-semibold text-slate-700 mb-1">Código de Acesso / Licença</label>
-                        <div className="relative">
-                            <Key className="absolute left-3 top-3 text-slate-400" size={18} />
-                            <input 
-                                required 
-                                type="text" 
-                                className="w-full pl-10 p-2.5 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
-                                placeholder="Chave de Licença ou Convite"
-                                value={accessCode}
-                                onChange={e => setAccessCode(e.target.value)}
-                            />
-                        </div>
-                        <p className="text-xs text-slate-500 mt-1 ml-1">Necessário para criar nova conta.</p>
-                    </div>
-                </>
+                </div>
             )}
 
             <div>
@@ -157,7 +137,7 @@ const Login: React.FC = () => {
         <div className="p-4 bg-slate-50 border-t border-slate-100 text-center">
             <button 
                 type="button" 
-                onClick={() => { setError(''); setIsRegistering(!isRegistering); setAccessCode(''); }}
+                onClick={() => { setError(''); setIsRegistering(!isRegistering); }}
                 className="text-sm text-blue-600 hover:text-blue-800 hover:underline font-medium transition-colors"
             >
                 {isRegistering ? 'Já possui conta? Fazer Login' : 'Não tem conta? Criar agora'}

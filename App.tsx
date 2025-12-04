@@ -8,12 +8,11 @@ import Customers from './components/Customers';
 import Sales from './components/Sales';
 import Finance from './components/Finance';
 import Settings from './components/Settings';
-import SaaSAdmin from './components/SaaSAdmin';
 import Login from './components/Login';
-import { LayoutDashboard, Car, Users, BadgeDollarSign, Menu, X, LogOut, Settings as SettingsIcon, ShoppingBag, ShieldCheck } from 'lucide-react';
+import { LayoutDashboard, Car, Users, BadgeDollarSign, Menu, X, LogOut, Settings as SettingsIcon, ShoppingBag } from 'lucide-react';
 
 const App: React.FC = () => {
-  const { storeProfile, isAuthenticated, logout, currentUser } = useStore();
+  const { storeProfile, isAuthenticated, logout } = useStore();
   const [currentView, setCurrentView] = useState<ViewState>('dashboard');
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
@@ -68,14 +67,6 @@ const App: React.FC = () => {
             <NavItem view="customers" icon={<Users size={20} />} label="Clientes" />
             <NavItem view="sales" icon={<ShoppingBag size={20} />} label="Vendas" />
             <NavItem view="finance" icon={<BadgeDollarSign size={20} />} label="Financeiro" />
-            
-            {/* SaaS Admin Link - Only visible to Admins */}
-            {currentUser?.role === 'admin' && (
-               <div className="pt-4 mt-4 border-t border-slate-800">
-                  <p className="px-4 text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">Administração</p>
-                  <NavItem view="saas-admin" icon={<ShieldCheck size={20} />} label="Gestão SaaS" />
-               </div>
-            )}
           </nav>
 
           <div className="p-4 border-t border-slate-800 space-y-2">
@@ -114,11 +105,10 @@ const App: React.FC = () => {
           <div className="ml-auto flex items-center space-x-4">
             <div className="text-right hidden sm:block">
               <p className="text-sm font-medium text-slate-700">{storeProfile.name}</p>
-              <p className="text-xs text-slate-500">{currentUser?.role === 'admin' ? 'Administrador SaaS' : 'Lojista'}</p>
+              <p className="text-xs text-slate-500">Gestão de Loja</p>
             </div>
-            <div className={`w-10 h-10 rounded-full flex items-center justify-center font-bold border-2 border-white shadow-sm
-                ${currentUser?.role === 'admin' ? 'bg-purple-100 text-purple-700' : 'bg-brand-100 text-brand-700'}`}>
-              {currentUser?.role === 'admin' ? 'S' : 'L'}
+            <div className="w-10 h-10 rounded-full flex items-center justify-center font-bold border-2 border-white shadow-sm bg-brand-100 text-brand-700">
+              L
             </div>
           </div>
         </header>
@@ -132,7 +122,6 @@ const App: React.FC = () => {
             {currentView === 'sales' && <Sales />}
             {currentView === 'finance' && <Finance />}
             {currentView === 'settings' && <Settings />}
-            {currentView === 'saas-admin' && currentUser?.role === 'admin' && <SaaSAdmin />}
           </div>
         </div>
       </main>
