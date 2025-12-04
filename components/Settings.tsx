@@ -1,11 +1,24 @@
+
 import React, { useState } from 'react';
 import { useStore } from '../services/store';
-import { Store, Mail, Phone, Save, Download, Upload, Cloud, CloudOff, Info } from 'lucide-react';
+import { updateFirebaseConfig, resetFirebaseConfig } from '../services/firebase';
+import { Store, Mail, Phone, Save, Download, Upload, Cloud, CloudOff, Info, Database, ChevronDown, ChevronUp } from 'lucide-react';
 
 const Settings: React.FC = () => {
   const { storeProfile, updateStoreProfile, exportData, importData, isCloudSyncing } = useStore();
   const [formData, setFormData] = useState(storeProfile);
   const [message, setMessage] = useState('');
+  
+  // Cloud Config State
+  const [showCloudForm, setShowCloudForm] = useState(false);
+  const [cloudConfig, setCloudConfig] = useState({
+      apiKey: '',
+      authDomain: '',
+      projectId: '',
+      storageBucket: '',
+      messagingSenderId: '',
+      appId: ''
+  });
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -31,6 +44,37 @@ const Settings: React.FC = () => {
     reader.readAsText(file);
   };
 
+  const handleSaveCloud = () => {
+      if (!cloudConfig.apiKey || !cloudConfig.projectId) {
+          alert("Por favor, preencha pelo menos a API Key e o Project ID.");
+          return;
+      }
+      updateFirebaseConfig(cloudConfig);
+  };
+
+  const handleJsonPaste = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+      try {
+          const val = e.target.value;
+          // Tenta encontrar objeto JSON no texto
+          const jsonStart = val.indexOf('{');
+          const jsonEnd = val.lastIndexOf('}');
+          if (jsonStart !== -1 && jsonEnd !== -1) {
+              const jsonStr = val.substring(jsonStart, jsonEnd + 1);
+              const parsed = JSON.parse(jsonStr);
+              setCloudConfig({
+                  apiKey: parsed.apiKey || '',
+                  authDomain: parsed.authDomain || '',
+                  projectId: parsed.projectId || '',
+                  storageBucket: parsed.storageBucket || '',
+                  messagingSenderId: parsed.messagingSenderId || '',
+                  appId: parsed.appId || ''
+              });
+          }
+      } catch (err) {
+          // Ignora erro de parse enquanto digita
+      }
+  };
+
   return (
     <div className="max-w-2xl mx-auto space-y-6 pb-12">
       <h2 className="text-2xl font-bold text-slate-800">Configurações da Loja</h2>
@@ -52,7 +96,7 @@ const Settings: React.FC = () => {
              <p className="text-xs opacity-90">
                {isCloudSyncing 
                  ? 'Seus dados são salvos automaticamente e acessíveis em qualquer dispositivo.' 
-                 : 'Seus dados estão salvos apenas neste navegador. Para sincronizar entre PC e Celular, configure as chaves do Firebase.'}
+                 : 'Seus dados estão salvos apenas neste navegador.'}
              </p>
            </div>
         </div>
@@ -115,10 +159,117 @@ const Settings: React.FC = () => {
         </div>
       </form>
 
+      {/* Cloud Configuration Section */}
+      <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-100">
+        <div className="flex justify-between items-start mb-4">
+            <div>
+                <h3 className="text-lg font-bold text-slate-800 flex items-center gap-2">
+                    <Database size={20} /> Conexão Firebase
+                </h3>
+                <p className="text-sm text-slate-500 mt-1">
+                    Conecte seu próprio banco de dados para habilitar a sincronização online.
+                </p>
+            </div>
+            {isCloudSyncing && (
+                <button 
+                    onClick={resetFirebaseConfig}
+                    className="text-xs border border-red-200 text-red-600 hover:bg-red-50 px-3 py-1.5 rounded-lg transition-colors"
+                >
+                    Desconectar
+                </button>
+            )}
+        </div>
+
+        {!isCloudSyncing ? (
+            <div className="bg-slate-50 p-4 rounded-lg border border-slate-200">
+                <button 
+                    type="button"
+                    onClick={() => setShowCloudForm(!showCloudForm)}
+                    className="flex items-center justify-between w-full text-left text-slate-700 font-medium mb-2"
+                >
+                    <span>Configurar Manualmente</span>
+                    {showCloudForm ? <ChevronUp size={18}/> : <ChevronDown size={18}/>}
+                </button>
+                
+                {showCloudForm && (
+                    <div className="space-y-4 animate-in slide-in-from-top-2 pt-2">
+                        <div className="p-3 bg-blue-50 text-blue-800 text-xs rounded border border-blue-100 mb-2">
+                            <strong>Dica:</strong> Cole o objeto <code>config</code> inteiro do console do Firebase na caixa abaixo ou preencha os campos individualmente.
+                        </div>
+
+                        <div>
+                             <label className="block text-xs font-semibold text-slate-500 mb-1">Colar JSON de Configuração (Opcional)</label>
+                             <textarea 
+                                className="w-full p-2 text-xs font-mono border border-slate-300 rounded bg-white h-20"
+                                placeholder='{ "apiKey": "...", "authDomain": "..." }'
+                                onChange={handleJsonPaste}
+                             ></textarea>
+                        </div>
+
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                            <div>
+                                <label className="block text-xs font-semibold text-slate-500 mb-1">API Key</label>
+                                <input 
+                                    type="text" 
+                                    className="w-full p-2 border border-slate-300 rounded text-sm"
+                                    value={cloudConfig.apiKey}
+                                    onChange={e => setCloudConfig({...cloudConfig, apiKey: e.target.value})}
+                                />
+                            </div>
+                            <div>
+                                <label className="block text-xs font-semibold text-slate-500 mb-1">Project ID</label>
+                                <input 
+                                    type="text" 
+                                    className="w-full p-2 border border-slate-300 rounded text-sm"
+                                    value={cloudConfig.projectId}
+                                    onChange={e => setCloudConfig({...cloudConfig, projectId: e.target.value})}
+                                />
+                            </div>
+                            <div>
+                                <label className="block text-xs font-semibold text-slate-500 mb-1">Auth Domain</label>
+                                <input 
+                                    type="text" 
+                                    className="w-full p-2 border border-slate-300 rounded text-sm"
+                                    value={cloudConfig.authDomain}
+                                    onChange={e => setCloudConfig({...cloudConfig, authDomain: e.target.value})}
+                                />
+                            </div>
+                            <div>
+                                <label className="block text-xs font-semibold text-slate-500 mb-1">App ID</label>
+                                <input 
+                                    type="text" 
+                                    className="w-full p-2 border border-slate-300 rounded text-sm"
+                                    value={cloudConfig.appId}
+                                    onChange={e => setCloudConfig({...cloudConfig, appId: e.target.value})}
+                                />
+                            </div>
+                        </div>
+                        <button 
+                            onClick={handleSaveCloud}
+                            className="w-full bg-indigo-600 hover:bg-indigo-700 text-white py-2 rounded-lg font-medium transition-colors"
+                        >
+                            Salvar e Conectar
+                        </button>
+                    </div>
+                )}
+            </div>
+        ) : (
+            <div className="p-4 bg-emerald-50 border border-emerald-100 rounded-lg flex items-center gap-3">
+                <div className="p-2 bg-emerald-100 rounded-full text-emerald-600">
+                    <Database size={20} />
+                </div>
+                <div>
+                    <p className="text-sm font-bold text-emerald-800">Conectado ao Firebase</p>
+                    <p className="text-xs text-emerald-600 break-all">Projeto: {storeProfile.name || 'Personalizado'}</p>
+                </div>
+            </div>
+        )}
+      </div>
+
       {/* Backup Section */}
       <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-100 space-y-6">
         <h3 className="text-lg font-bold text-slate-800 flex items-center gap-2">
-            Gestão de Dados
+            Gestão de Dados Locais
         </h3>
         <p className="text-sm text-slate-500">
             Use estas opções para transferir seus dados manualmente se não estiver usando a nuvem.

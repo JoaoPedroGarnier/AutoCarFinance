@@ -3,38 +3,97 @@ import { initializeApp } from 'firebase/app';
 import { getFirestore } from 'firebase/firestore';
 import { getAuth } from 'firebase/auth';
 
-// Avoid TypeScript errors with process.env
-declare const process: any;
+const LOCAL_STORAGE_KEY = 'autocars_firebase_config';
 
-// Function to get config from environment variables
-const getFirebaseConfig = () => {
-  const config = {
-    apiKey: process.env.FIREBASE_API_KEY,
-    authDomain: process.env.FIREBASE_AUTH_DOMAIN,
-    projectId: process.env.FIREBASE_PROJECT_ID,
-    storageBucket: process.env.FIREBASE_STORAGE_BUCKET,
-    messagingSenderId: process.env.FIREBASE_MESSAGING_SENDER_ID,
-    appId: process.env.FIREBASE_APP_ID
-  };
+// Helper para obter variáveis de ambiente de forma segura em diferentes ambientes
+const getEnv = (key: string) => {
+  // Tenta via import.meta.env (Vite padrão)
+  try {
+    // @ts-ignore
+    if (typeof import.meta !== 'undefined' && import.meta.env && import.meta.env[key]) {
+      // @ts-ignore
+      return import.meta.env[key];
+    }
+  } catch (e) { /* ignorar */ }
 
-  // Debugging: Check which keys are missing
-  const missingKeys = Object.entries(config)
-    .filter(([_, value]) => !value)
-    .map(([key]) => key);
-
-  if (missingKeys.length > 0) {
-    console.warn(`[AutoCars Firebase] Conexão desativada. Faltam as seguintes chaves de configuração: ${missingKeys.join(', ')}`);
-    console.info(`[AutoCars Firebase] O sistema funcionará em Modo Local (Offline). Configure as variáveis de ambiente no seu provedor de hospedagem para ativar a sincronização.`);
-    return null;
-  }
-
-  console.log("[AutoCars Firebase] Configuração encontrada. Inicializando nuvem...");
-  return config;
+  // Tenta via process.env (Fallback/Node/Polyfills)
+  try {
+    // @ts-ignore
+    if (typeof process !== 'undefined' && process.env && process.env[key]) {
+      // @ts-ignore
+      return process.env[key];
+    }
+  } catch (e) { /* ignorar */ }
+  
+  return undefined;
 };
 
-const config = getFirebaseConfig();
-const app = config ? initializeApp(config) : null;
-export const db = app ? getFirestore(app) : null;
-export const auth = app ? getAuth(app) : null;
+// Tenta recuperar configuração salva localmente pelo usuário (via Configurações)
+const getStoredConfig = () => {
+  try {
+    const stored = localStorage.getItem(LOCAL_STORAGE_KEY);
+    return stored ? JSON.parse(stored) : null;
+  } catch {
+    return null;
+  }
+};
 
+const storedConfig = getStoredConfig();
+
+const config = {
+  apiKey: getEnv('VITE_FIREBASE_API_KEY') || storedConfig?.apiKey,
+  authDomain: getEnv('VITE_FIREBASE_AUTH_DOMAIN') || storedConfig?.authDomain,
+  projectId: getEnv('VITE_FIREBASE_PROJECT_ID') || storedConfig?.projectId,
+  storageBucket: getEnv('VITE_FIREBASE_STORAGE_BUCKET') || storedConfig?.storageBucket,
+  messagingSenderId: getEnv('VITE_FIREBASE_MESSAGING_SENDER_ID') || storedConfig?.messagingSenderId,
+  appId: getEnv('VITE_FIREBASE_APP_ID') || storedConfig?.appId
+};
+
+console.log("[AutoCars Debug] Verificando chaves de ambiente...");
+
+// Verificação de chaves ausentes
+const missingKeys: string[] = [];
+if (!config.apiKey) missingKeys.push("VITE_FIREBASE_API_KEY");
+if (!config.authDomain) missingKeys.push("VITE_FIREBASE_AUTH_DOMAIN");
+if (!config.projectId) missingKeys.push("VITE_FIREBASE_PROJECT_ID");
+
+let app = null;
+let db = null;
+let auth = null;
+
+if (missingKeys.length > 0) {
+  console.warn(`[AutoCars Firebase] ⚠️ MODO OFFLINE ATIVADO.`);
+  console.warn(`[AutoCars Firebase] Chaves não detectadas via ENV. Verificando configuração manual...`);
+} 
+
+// Tenta inicializar se tivermos configuração válida (seja via ENV ou LocalStorage)
+if (config.apiKey && config.projectId) {
+  try {
+    console.log("[AutoCars Firebase] ✅ Configuração encontrada. Inicializando Firebase...");
+    app = initializeApp(config as any);
+    db = getFirestore(app);
+    auth = getAuth(app);
+    console.log("[AutoCars Firebase] Conectado com sucesso.");
+  } catch (error) {
+    console.error("[AutoCars Firebase] Erro fatal ao inicializar:", error);
+    // Se falhar a config manual, limpamos para evitar loop de erro
+    if (storedConfig) {
+        console.warn("[AutoCars Firebase] Configuração manual inválida detectada.");
+    }
+  }
+}
+
+// Funções para gerenciamento manual da configuração via UI
+export const updateFirebaseConfig = (newConfig: any) => {
+    if (!newConfig) return;
+    localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(newConfig));
+    window.location.reload();
+};
+
+export const resetFirebaseConfig = () => {
+    localStorage.removeItem(LOCAL_STORAGE_KEY);
+    window.location.reload();
+};
+
+export { db, auth };
 export const isFirebaseConfigured = !!app;
