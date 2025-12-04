@@ -1,8 +1,8 @@
 
-import { initializeApp } from 'firebase/app';
-import { initializeFirestore, persistentLocalCache, persistentMultipleTabManager } from 'firebase/firestore';
-import { getAuth } from 'firebase/auth';
-import { getAnalytics } from "firebase/analytics";
+import { initializeApp, FirebaseApp } from 'firebase/app';
+import { initializeFirestore, persistentLocalCache, persistentMultipleTabManager, Firestore } from 'firebase/firestore';
+import { getAuth, Auth } from 'firebase/auth';
+import { getAnalytics, Analytics } from "firebase/analytics";
 
 const LOCAL_STORAGE_KEY = 'autocars_firebase_config';
 
@@ -77,10 +77,11 @@ const missingKeys: string[] = [];
 if (!config.apiKey) missingKeys.push("API_KEY");
 if (!config.projectId) missingKeys.push("PROJECT_ID");
 
-let app = null;
-let db = null;
-let auth = null;
-let analytics = null;
+// Definição de tipos explícitos para evitar erro TS7005 (implicit any)
+let app: FirebaseApp | null = null;
+let db: Firestore | null = null;
+let auth: Auth | null = null;
+let analytics: Analytics | null = null;
 
 if (missingKeys.length > 0) {
   console.warn(`[AutoCars Firebase] ⚠️ MODO OFFLINE ATIVADO. Chaves ausentes: ${missingKeys.join(', ')}`);
