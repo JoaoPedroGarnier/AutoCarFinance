@@ -8,7 +8,10 @@ import {
   createUserWithEmailAndPassword, 
   signOut, 
   onAuthStateChanged,
-  User as FirebaseUser
+  User as FirebaseUser,
+  setPersistence,
+  browserLocalPersistence,
+  AuthError
 } from 'firebase/auth';
 
 // --- CONSTANTES ---
@@ -108,6 +111,15 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
   // --- 2. GERENCIAMENTO DE SESSÃO FIREBASE (AUTH LISTENER) ---
   useEffect(() => {
     if (isFirebaseConfigured && auth) {
+      // Forçar persistência local para garantir que o celular mantenha o login
+      setPersistence(auth, browserLocalPersistence)
+        .then(() => {
+           console.log("[AutoCars Auth] Persistência configurada.");
+        })
+        .catch((error) => {
+           console.error("[AutoCars Auth] Erro na persistência:", error);
+        });
+
       const unsubscribeAuth = onAuthStateChanged(auth, (firebaseUser: FirebaseUser | null) => {
         if (firebaseUser) {
           // Usuário detectado (Login persistente ou novo login)
@@ -163,8 +175,7 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
         } else {
           // Se estamos logados no Auth mas não tem dados no Firestore (ex: erro no registro anterior),
           // inicializamos o documento.
-          console.log("[AutoCars Sync] Perfil não encontrado, inicializando...");
-          // A inicialização real deve ocorrer no Registro, mas isso é um fallback
+          console.log("[AutoCars Sync] Perfil não encontrado no banco de dados.");
         }
       }, (error) => {
         console.error("Erro crítico na sincronização:", error);
@@ -175,7 +186,7 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     return () => {
       if (unsubscribeSnapshot) unsubscribeSnapshot();
     };
-  }, [isAuthenticated, currentUser?.id]); // Dependência no ID para recriar listener se mudar usuário
+  }, [isAuthenticated, currentUser?.id]); 
 
   // --- 4. ACTIONS (WRITE TO CLOUD OR LOCAL) ---
   
@@ -275,12 +286,10 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     if (isFirebaseConfigured && auth) {
       try {
         await signInWithEmailAndPassword(auth, email, password);
-        // O useEffect do onAuthStateChanged cuidará de setar o estado e carregar dados
         return true;
       } catch (err: any) {
         console.error("Erro no login Firebase:", err);
-        // Retorna falso para que a UI mostre o erro. O erro específico pode ser tratado no componente.
-        throw err; // Lança o erro para a UI capturar a mensagem correta (senha errada, etc)
+        throw err; 
       }
     }
 
@@ -290,7 +299,6 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
       setCurrentUser(localUser);
       setIsAuthenticated(true);
       
-      // Load Local Data
       const storageKey = `${DATA_STORAGE_PREFIX}${localUser.id}`;
       const savedDataString = localStorage.getItem(storageKey);
       if (savedDataString) {
@@ -317,7 +325,6 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
         const userCredential = await createUserWithEmailAndPassword(auth, userData.email, userData.password);
         const firebaseUser = userCredential.user;
         
-        // Initialize Store Data in Firestore linked to UID
         const initialProfile: StoreProfile = { 
           name: userData.storeName, 
           email: userData.email, 
@@ -358,7 +365,6 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
         console.error("Erro ao sair:", e);
       }
     }
-    // Limpeza de estado local acontece no onAuthStateChanged ou aqui como garantia
     setCurrentUser(null);
     setIsAuthenticated(false);
     setIsDataLoaded(false);

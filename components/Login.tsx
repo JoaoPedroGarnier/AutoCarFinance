@@ -1,10 +1,10 @@
 
 import React, { useState } from 'react';
 import { useStore } from '../services/store';
-import { Mail, Lock, ArrowRight, UserPlus, Store, CheckCircle, Key, AlertTriangle } from 'lucide-react';
+import { Mail, Lock, ArrowRight, UserPlus, Store, CheckCircle, Key, AlertTriangle, Cloud, CloudOff } from 'lucide-react';
 
 const Login: React.FC = () => {
-  const { login, register } = useStore();
+  const { login, register, isCloudSyncing } = useStore();
   const [isRegistering, setIsRegistering] = useState(false);
   
   const [email, setEmail] = useState('');
@@ -193,14 +193,29 @@ const Login: React.FC = () => {
           </button>
         </form>
         
-        <div className="bg-slate-50 p-4 text-center border-t border-slate-100">
+        <div className="bg-slate-50 p-4 text-center border-t border-slate-100 space-y-3">
           <button 
             type="button"
             onClick={toggleMode}
-            className="text-sm text-brand-600 hover:text-brand-800 font-medium hover:underline transition-colors"
+            className="text-sm text-brand-600 hover:text-brand-800 font-medium hover:underline transition-colors block w-full"
           >
             {isRegistering ? 'Já tem uma conta? Faça Login' : 'Não tem conta? Cadastre-se agora'}
           </button>
+
+          {/* Connection Status Indicator */}
+          <div className={`flex items-center justify-center gap-2 text-xs font-semibold py-2 px-3 rounded-lg border ${
+            isCloudSyncing 
+              ? 'bg-emerald-50 text-emerald-700 border-emerald-100' 
+              : 'bg-amber-50 text-amber-700 border-amber-100'
+          }`}>
+            {isCloudSyncing ? <Cloud size={14} /> : <CloudOff size={14} />}
+            {isCloudSyncing ? 'Conectado à Nuvem (Sincronização Ativa)' : 'Modo Local / Offline (Não Sincronizado)'}
+          </div>
+          {!isCloudSyncing && (
+             <p className="text-[10px] text-amber-600 px-4">
+               Para acessar em múltiplos dispositivos, configure as chaves do Firebase no seu provedor de hospedagem.
+             </p>
+          )}
         </div>
       </div>
     </div>
